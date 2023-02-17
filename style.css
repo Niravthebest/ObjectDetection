@@ -1,0 +1,11 @@
+body {
+    font-family: 'Lucida Sans', 'Lucida Sans Regular', 'Lucida Grande', 'Lucida Sans Unicode', Geneva, Verdana, sans-serif;
+    background-repeat: no-repeat;
+    background-size: cover;
+    color:white;
+}
+
+#one {
+width: 45%;
+border-radius: 15%;
+}
