@@ -30,8 +30,13 @@ def load_universe(data_dir: str) -> dict:
 
 
 def simulate_trades(df: pd.DataFrame, symbol: str, test_start: pd.Timestamp,
-                     hold_days: int) -> list:
+                     hold_days: int) -> tuple:
+    """Returns (trades, daily_returns) where daily_returns is a list of
+    (date, day_return) covering every day each trade was held -- used to
+    build a proper mark-to-market portfolio equity curve, since with
+    thousands of trades many positions overlap in time."""
     trades = []
+    daily_returns = []
     in_position_until = -1
     n = len(df)
     for t in range(len(df)):
@@ -59,8 +64,16 @@ def simulate_trades(df: pd.DataFrame, symbol: str, test_start: pd.Timestamp,
             "exit_price": exit_price,
             "return": ret,
         })
+        # day-by-day mark-to-market return while this trade is held
+        prev_price = entry_price
+        for i in range(entry_idx, exit_idx + 1):
+            price = df["close"].iloc[i]
+            if pd.isna(price) or prev_price <= 0:
+                break
+            daily_returns.append((df["date"].iloc[i], price / prev_price - 1.0))
+            prev_price = price
         in_position_until = exit_idx
-    return trades
+    return trades, daily_returns
 
 
 def max_drawdown(equity: pd.Series) -> float:
@@ -69,7 +82,22 @@ def max_drawdown(equity: pd.Series) -> float:
     return drawdown.min()
 
 
-def summarize(trades_df: pd.DataFrame, hold_days: int) -> dict:
+def build_portfolio_equity_curve(daily_returns: list) -> pd.Series:
+    """Equal-weight, mark-to-market across every position open on a given
+    day (positions overlap constantly with 1000 tickers, so this -- not
+    sequential per-trade compounding -- is the correct way to build an
+    equity curve). Days with no open positions contribute a 0% return."""
+    if not daily_returns:
+        return pd.Series(dtype=float)
+    dr = pd.DataFrame(daily_returns, columns=["date", "ret"])
+    daily_portfolio_ret = dr.groupby("date")["ret"].mean()
+    full_range = pd.date_range(daily_portfolio_ret.index.min(),
+                                daily_portfolio_ret.index.max(), freq="B")
+    daily_portfolio_ret = daily_portfolio_ret.reindex(full_range, fill_value=0.0)
+    return (1.0 + daily_portfolio_ret).cumprod()
+
+
+def summarize(trades_df: pd.DataFrame, daily_returns: list) -> dict:
     n = len(trades_df)
     if n == 0:
         return {"total_trades": 0}
@@ -79,36 +107,35 @@ def summarize(trades_df: pd.DataFrame, hold_days: int) -> dict:
     gross_loss = -losses["return"].sum()
     profit_factor = gross_win / gross_loss if gross_loss > 0 else np.inf
 
-    ordered = trades_df.sort_values("entry_date")
-    equity = (1.0 + ordered["return"]).cumprod()
+    equity = build_portfolio_equity_curve(daily_returns)
+    years_span = max(len(equity) / 252.0, 1e-6)
+    cagr = equity.iloc[-1] ** (1 / years_span) - 1.0 if len(equity) else np.nan
 
-    years_span = max(
-        (ordered["exit_date"].max() - ordered["entry_date"].min()).days / 365.25,
-        1e-6,
-    )
-    cagr = equity.iloc[-1] ** (1 / years_span) - 1.0
-
-    daily_like_return_std = ordered["return"].std()
-    sharpe_like = (
-        ordered["return"].mean() / daily_like_return_std * np.sqrt(252 / hold_days)
-        if daily_like_return_std and daily_like_return_std > 0
+    daily_ret_series = equity.pct_change().dropna()
+    sharpe = (
+        daily_ret_series.mean() / daily_ret_series.std() * np.sqrt(252)
+        if daily_ret_series.std() and daily_ret_series.std() > 0
         else np.nan
+    )
+    avg_concurrent_positions = (
+        pd.DataFrame(daily_returns, columns=["date", "ret"]).groupby("date").size().mean()
     )
 
     return {
         "total_trades": n,
         "unique_symbols": trades_df["symbol"].nunique(),
         "win_rate": len(wins) / n,
-        "avg_return": trades_df["return"].mean(),
-        "median_return": trades_df["return"].median(),
+        "avg_return_per_trade": trades_df["return"].mean(),
+        "median_return_per_trade": trades_df["return"].median(),
         "avg_win": wins["return"].mean() if len(wins) else np.nan,
         "avg_loss": losses["return"].mean() if len(losses) else np.nan,
         "profit_factor": profit_factor,
-        "expectancy": trades_df["return"].mean(),
-        "compounded_total_return": equity.iloc[-1] - 1.0,
-        "cagr_equal_weight_sequential": cagr,
-        "max_drawdown_equal_weight_sequential": max_drawdown(equity),
-        "sharpe_like_annualized": sharpe_like,
+        "expectancy_per_trade": trades_df["return"].mean(),
+        "avg_concurrent_positions": avg_concurrent_positions,
+        "portfolio_total_return": equity.iloc[-1] - 1.0 if len(equity) else np.nan,
+        "portfolio_cagr": cagr,
+        "portfolio_max_drawdown": max_drawdown(equity) if len(equity) else np.nan,
+        "portfolio_sharpe_annualized": sharpe,
         "date_range_start": trades_df["entry_date"].min(),
         "date_range_end": trades_df["exit_date"].max(),
     }
@@ -134,20 +161,22 @@ def main():
     )
 
     all_trades = []
+    all_daily_returns = []
     skipped_short_history = []
     for symbol, df in universe.items():
         if len(df) < MIN_HISTORY_BARS:
             skipped_short_history.append(symbol)
             continue
         sig_df = compute_signals(df)
-        trades = simulate_trades(sig_df, symbol, test_start, args.hold_days)
+        trades, daily_returns = simulate_trades(sig_df, symbol, test_start, args.hold_days)
         all_trades.extend(trades)
+        all_daily_returns.extend(daily_returns)
 
     trades_df = pd.DataFrame(all_trades)
     trades_path = os.path.join(args.out_dir, "trades.csv")
     trades_df.to_csv(trades_path, index=False)
 
-    summary = summarize(trades_df, args.hold_days) if len(trades_df) else {"total_trades": 0}
+    summary = summarize(trades_df, all_daily_returns) if len(trades_df) else {"total_trades": 0}
     summary["universe_size"] = len(universe)
     summary["skipped_short_history"] = len(skipped_short_history)
     summary["test_start"] = str(test_start.date())
@@ -155,6 +184,11 @@ def main():
 
     summary_path = os.path.join(args.out_dir, "summary.json")
     pd.Series(summary).to_json(summary_path, indent=2, date_format="iso")
+
+    equity = build_portfolio_equity_curve(all_daily_returns)
+    if len(equity):
+        equity.rename("equity").to_csv(os.path.join(args.out_dir, "equity_curve.csv"),
+                                        index_label="date")
 
     print(f"Universe: {len(universe)} symbols ({len(skipped_short_history)} skipped for insufficient history)")
     print(f"Test window: {test_start.date()} .. {latest_date.date()}  |  hold: {args.hold_days} trading days")
