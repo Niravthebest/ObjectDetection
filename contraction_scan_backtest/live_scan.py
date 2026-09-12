@@ -19,11 +19,20 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data-dir", default="data")
     ap.add_argument("--out", default="results/live_picks.csv")
+    ap.add_argument("--as-of", default=None,
+                     help="YYYY-MM-DD; treat this date as the signal day, ignoring any later bars "
+                          "(e.g. to skip a known-bad or incomplete final day). Defaults to the latest "
+                          "date present in the data.")
     args = ap.parse_args()
 
     universe = load_universe(args.data_dir)
+    as_of_date = pd.Timestamp(args.as_of) if args.as_of else None
+    if as_of_date is not None:
+        universe = {sym: df[df["date"] <= as_of_date].reset_index(drop=True)
+                    for sym, df in universe.items()}
+        universe = {sym: df for sym, df in universe.items() if len(df)}
     latest_date = max(g["date"].max() for g in universe.values())
-    print(f"Latest bar in dataset: {latest_date.date()}")
+    print(f"Scanning as of: {latest_date.date()}" + (" (later bars ignored)" if as_of_date is not None else ""))
 
     picks = []
     skipped = 0
