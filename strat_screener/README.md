@@ -91,8 +91,13 @@ strat_screener/
   screener.py       ranks current actionable setups across a symbol list
   cli.py            `backtest` and `screen` subcommands
 tests/               pytest unit tests for the above
-symbols.txt          example symbol universe
+symbols.txt          default symbol universe: S&P 500 + Nasdaq-100, deduped (~516 tickers)
 ```
+
+`symbols.txt` uses the yfinance/dash convention for dual-class tickers
+(`BRK-B`, `BF-B`). If you're sourcing data from Robinhood instead, translate
+those two to dot notation (`BRK.B`, `BF.B`) — that's the format its API
+expects.
 
 ## Usage
 
