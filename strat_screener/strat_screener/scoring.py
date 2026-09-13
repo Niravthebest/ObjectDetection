@@ -24,11 +24,19 @@ def _shrink_to_neutral(base: float, n: int, k: int = SHRINK_K) -> float:
     return 50.0 + (base - 50.0) * weight
 
 
-def backtest_edge(stats: dict, timeframe: str, pattern: str, direction: str, ftfc_aligned: bool) -> Tuple[float, int]:
-    """Returns (shrunk_score_0_100, sample_size)."""
+def find_bucket(stats: dict, timeframe: str, pattern: str, direction: str, ftfc_aligned: bool) -> Optional[dict]:
+    """Look up the raw backtest bucket {n, win_rate, avg_r, median_r, avg_return_pct}
+    for a setup, preferring the FTFC-specific bucket and falling back to the
+    FTFC-agnostic one. Returns None if the pattern has no history at all.
+    """
     specific_key = f"{timeframe}|{pattern}|{direction}|ftfc={ftfc_aligned}"
     generic_key = f"{timeframe}|{pattern}|{direction}"
-    entry = stats.get(specific_key) or stats.get(generic_key)
+    return stats.get(specific_key) or stats.get(generic_key)
+
+
+def backtest_edge(stats: dict, timeframe: str, pattern: str, direction: str, ftfc_aligned: bool) -> Tuple[float, int]:
+    """Returns (shrunk_score_0_100, sample_size)."""
+    entry = find_bucket(stats, timeframe, pattern, direction, ftfc_aligned)
     if not entry:
         return 50.0, 0
 

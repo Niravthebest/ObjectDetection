@@ -5,7 +5,7 @@ import pandas as pd
 
 from .backtest import TIMEFRAMES, other_direction_asof, prepare_symbol_frames
 from .patterns import detect_pattern
-from .scoring import composite_score
+from .scoring import composite_score, find_bucket
 
 VOLUME_LOOKBACK = 20
 
@@ -40,6 +40,8 @@ def current_setups_for_symbol(frames: Dict[str, pd.DataFrame], stats: dict) -> L
                 volume_ratio = volume.iloc[i] / avg_volume
 
         score, backtest_n = composite_score(stats, tf, match.name, match.direction, aligned, total, volume_ratio)
+        fully_aligned = total > 0 and aligned == total
+        bucket = find_bucket(stats, tf, match.name, match.direction, fully_aligned)
 
         window = df.iloc[max(0, i - match.n_bars + 1): i + 1]
         results.append({
@@ -48,6 +50,9 @@ def current_setups_for_symbol(frames: Dict[str, pd.DataFrame], stats: dict) -> L
             "direction": match.direction,
             "score": round(score, 1),
             "backtest_n": backtest_n,
+            "win_rate": round(bucket["win_rate"], 3) if bucket else None,
+            "avg_return_pct": round(bucket["avg_return_pct"], 4) if bucket else None,
+            "avg_r": round(bucket["avg_r"], 2) if bucket else None,
             "ftfc": f"{aligned}/{total}",
             "bar_date": str(df.index[i].date()),
             "close": float(df["close"].iloc[i]),

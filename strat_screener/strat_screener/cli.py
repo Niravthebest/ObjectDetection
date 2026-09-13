@@ -10,7 +10,10 @@ from .backtest import run_backtest
 from .data_sources import YFinanceDataSource
 from .screener import run_screen
 
-ROW_COLUMNS = ["symbol", "timeframe", "pattern", "direction", "score", "ftfc", "backtest_n", "close", "bar_date"]
+ROW_COLUMNS = [
+    "symbol", "timeframe", "pattern", "direction", "score",
+    "win_rate", "avg_return_pct", "backtest_n", "ftfc", "close", "bar_date",
+]
 
 
 def read_symbols(path: str):
