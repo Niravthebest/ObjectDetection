@@ -1,0 +1,11 @@
+# One symbol per line. Lines starting with # are ignored.
+SPY
+QQQ
+IWM
+AAPL
+MSFT
+NVDA
+AMZN
+GOOGL
+META
+TSLA
