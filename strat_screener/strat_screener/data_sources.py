@@ -79,7 +79,13 @@ def robinhood_bars_to_df(bars: list) -> pd.DataFrame:
     Each bar dict looks like:
       {"begins_at": "...", "open_price": "...", "high_price": "...",
        "low_price": "...", "close_price": "...", "volume": ...}
+
+    Bars flagged "interpolated" are synthetic gap-fill with no real trade
+    data (flat OHLC, zero volume) and are dropped — keeping them would
+    inject a spurious inside-bar into the type sequence and corrupt
+    pattern detection right at the most recent, most-actionable bar.
     """
+    bars = [b for b in bars if not b.get("interpolated")]
     df = pd.DataFrame(bars)
     df["date"] = pd.to_datetime(df["begins_at"])
     df = df.rename(columns={
