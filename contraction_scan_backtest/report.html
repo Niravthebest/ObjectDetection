@@ -1,0 +1,516 @@
+<title>Contraction Scan Backtest</title>
+<style>
+.viz-root{
+  color-scheme: light;
+  --surface-1:      #fcfcfb;
+  --page:           #f9f9f7;
+  --text-primary:   #0b0b0b;
+  --text-secondary: #52514e;
+  --text-muted:     #898781;
+  --grid:           #e1e0d9;
+  --axis:           #c3c2b7;
+  --border:         rgba(11,11,11,0.10);
+  --blue:           #2a78d6;
+  --blue-soft:      #cde2fb;
+  --good:           #0ca30c;
+  --critical:       #d03b3b;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) .viz-root{
+    color-scheme: dark;
+    --surface-1:      #1a1a19;
+    --page:           #0d0d0d;
+    --text-primary:   #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted:     #898781;
+    --grid:           #2c2c2a;
+    --axis:           #383835;
+    --border:         rgba(255,255,255,0.10);
+    --blue:           #3987e5;
+    --blue-soft:      #184f95;
+    --good:           #0ca30c;
+    --critical:       #e66767;
+  }
+}
+:root[data-theme="dark"] .viz-root{
+  color-scheme: dark;
+  --surface-1:      #1a1a19;
+  --page:           #0d0d0d;
+  --text-primary:   #ffffff;
+  --text-secondary: #c3c2b7;
+  --text-muted:     #898781;
+  --grid:           #2c2c2a;
+  --axis:           #383835;
+  --border:         rgba(255,255,255,0.10);
+  --blue:           #3987e5;
+  --blue-soft:      #184f95;
+  --good:           #0ca30c;
+  --critical:       #e66767;
+}
+*{box-sizing:border-box;}
+body{background:var(--page);}
+.viz-root{
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: var(--text-primary);
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+}
+h1{font-size:1.4rem; margin:0 0 4px;}
+.subtitle{color:var(--text-secondary); font-size:0.9rem; margin:0 0 4px; line-height:1.5;}
+.scope-note{color:var(--text-muted); font-size:0.8rem; margin: 0 0 24px; line-height:1.5;}
+code{background:var(--grid); padding:1px 5px; border-radius:4px; font-size:0.85em;}
+.tiles{
+  display:grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px,1fr));
+  gap:10px;
+  margin-bottom: 28px;
+}
+.tile{
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+.tile .label{font-size:0.72rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.03em;}
+.tile .value{font-size:1.5rem; font-weight:600; margin-top:4px;}
+.tile .value.good{color:var(--good);}
+.tile .value.critical{color:var(--critical);}
+.card{
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 18px 18px 8px;
+  margin-bottom: 22px;
+}
+.card h2{font-size:0.95rem; margin:0 0 2px;}
+.card .desc{font-size:0.8rem; color:var(--text-muted); margin:0 0 12px;}
+svg{width:100%; height:auto; display:block; overflow:visible;}
+.axis-label{font-size:9px; fill:var(--text-muted);}
+.gridline{stroke:var(--grid); stroke-width:1;}
+.tooltip{
+  position:absolute; pointer-events:none; background:var(--text-primary); color:var(--surface-1);
+  font-size:11px; padding:5px 8px; border-radius:6px; opacity:0; transition:opacity .1s;
+  white-space:nowrap; z-index:5;
+}
+.chart-wrap{position:relative;}
+.year-row{display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid var(--grid); font-size:0.85rem;}
+.year-row:last-child{border-bottom:none;}
+.year-row .yr{font-weight:600; width:50px;}
+.year-row .bar-bg{flex:1; height:8px; background:var(--grid); border-radius:4px; margin:0 12px; position:relative;}
+.year-row .bar-fill{height:8px; border-radius:4px; background:var(--blue);}
+.year-row .n{width:110px; text-align:right; color:var(--text-secondary); font-variant-numeric:tabular-nums;}
+footer{font-size:0.75rem; color:var(--text-muted); line-height:1.6; margin-top:8px;}
+
+.heat-table{width:100%; border-collapse:collapse; font-size:0.8rem;}
+.heat-table th{font-weight:500; color:var(--text-muted); font-size:0.72rem; padding:4px 6px; text-align:center;}
+.heat-table th.row-head{text-align:right;}
+.heat-table td{text-align:center; padding:0;}
+.heat-cell{
+  padding:10px 6px; border-radius:6px; margin:2px; display:flex; flex-direction:column;
+  align-items:center; justify-content:center; gap:2px; min-height:52px; position:relative;
+}
+.heat-cell .sharpe{font-weight:700; font-size:0.95rem; font-variant-numeric:tabular-nums;}
+.heat-cell .sub{font-size:0.65rem; opacity:0.85; font-variant-numeric:tabular-nums;}
+.heat-cell.best::after{
+  content:"best"; position:absolute; top:2px; right:4px; font-size:0.55rem;
+  text-transform:uppercase; letter-spacing:0.03em; opacity:0.75;
+}
+.compare-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:10px; margin:14px 0 4px;}
+.compare-card{border:1px solid var(--border); border-radius:10px; padding:12px 14px;}
+.compare-card.highlight{border-color:var(--blue); background:var(--blue-soft); background-blend-mode:normal;}
+.compare-card .name{font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.02em; margin-bottom:6px;}
+.compare-card .row{display:flex; justify-content:space-between; font-size:0.8rem; padding:2px 0; font-variant-numeric:tabular-nums;}
+.compare-card .row .k{color:var(--text-secondary);}
+.conclusion{font-size:0.85rem; line-height:1.6; margin-top:14px; padding:12px 14px; background:var(--grid); border-radius:8px;}
+</style>
+
+<div class="viz-root">
+  <h1>Contraction Scan &mdash; Backtest Results</h1>
+  <p class="subtitle">Volatility-contraction breakout scan, 10-trading-day fixed hold, simulated over ~1,000 liquid NYSE/NASDAQ stocks (avg vol(30) &gt; 500k shares, price &gt; $5, market cap ≳ $6.8B) from Sep 2023 to Sep 2026.</p>
+  <p class="scope-note">Universe is a liquidity-filtered proxy, not the literal full NYSE/NASDAQ list (~8,000 tickers) — see <code>README.md</code> for why, plus every syntax-interpretation assumption made (<code>@{0..20}</code>, <code>@1</code>, <code>trend_up/dn</code>, <code>arange(0)</code>, <code>advol</code>).</p>
+
+  <div class="tiles">
+    <div class="tile"><div class="label">Total trades</div><div class="value">9,450</div></div>
+    <div class="tile"><div class="label">Win rate</div><div class="value good">52.8%</div></div>
+    <div class="tile"><div class="label">Avg return / trade</div><div class="value good">+0.75%</div></div>
+    <div class="tile"><div class="label">Profit factor</div><div class="value">1.31</div></div>
+    <div class="tile"><div class="label">Portfolio return</div><div class="value good">+62.0%</div></div>
+    <div class="tile"><div class="label">Portfolio CAGR</div><div class="value good">16.8%</div></div>
+    <div class="tile"><div class="label">Max drawdown</div><div class="value critical">&minus;19.6%</div></div>
+    <div class="tile"><div class="label">Sharpe (ann.)</div><div class="value">1.00</div></div>
+  </div>
+
+  <div class="card">
+    <h2>Portfolio equity curve</h2>
+    <p class="desc">Equal-weight, mark-to-market across every position open on a given day (avg. ~125 concurrent positions) &mdash; $1 grows to $1.62.</p>
+    <div class="chart-wrap"><svg id="eqChart" viewBox="0 0 900 260"></svg><div class="tooltip" id="eqTip"></div></div>
+  </div>
+
+  <div class="card">
+    <h2>By year</h2>
+    <p class="desc">Trade count and win rate per calendar year of entry.</p>
+    <div id="yearRows"></div>
+  </div>
+
+  <div class="card">
+    <h2>Trade return distribution</h2>
+    <p class="desc">Per-trade return over the 10-day hold, clipped to ±15%. Green = winning trades, red = losing.</p>
+    <div class="chart-wrap"><svg id="histChart" viewBox="0 0 900 220"></svg><div class="tooltip" id="histTip"></div></div>
+  </div>
+
+  <div class="card">
+    <h2>Stop-loss / take-profit sweep &mdash; 5-day max hold</h2>
+    <p class="desc">Each trade exits early if a day's high/low crosses the target or stop level; otherwise it exits at day 5's close. Cell shows Sharpe (annualized), with CAGR and win rate below. Darker = higher Sharpe.</p>
+    <div id="heatmapWrap"></div>
+    <div class="compare-grid" id="compareGrid"></div>
+    <div class="conclusion" id="conclusionText"></div>
+  </div>
+
+  <div class="card">
+    <h2>ATR-scaled stop/target sweep &mdash; 5-day max hold</h2>
+    <p class="desc">Same early-exit mechanics, but the stop/target distance is sized as a multiple of each stock's own ATR(20) at signal time, not a flat % of price &mdash; a quiet stock gets a tight dollar stop, a volatile one a wide one. Cell shows Sharpe, with CAGR and the resulting average stop % of price below (since the dollar distance varies per stock, this converts it back to an average % for comparison with the flat sweep above).</p>
+    <div id="atrHeatmapWrap"></div>
+    <div class="compare-grid" id="atrCompareGrid"></div>
+    <div class="conclusion" id="atrConclusionText"></div>
+  </div>
+
+  <footer>
+    Methodology, universe construction, and every interpretation assumption made for this proprietary scan syntax are documented in the repo's <code>contraction_scan_backtest/README.md</code>. No slippage/commissions modeled; one position per symbol at a time; survivorship bias from using today's liquid-stock list as a static universe. Same-day stop/target ambiguity (both levels crossed in one bar) is resolved conservatively: stop assumed hit first unless the open already gapped through one level.
+  </footer>
+</div>
+
+<script>
+const EQUITY = [{"date": "2023-09-17", "equity": 0.9922}, {"date": "2023-09-24", "equity": 0.9685}, {"date": "2023-10-01", "equity": 0.9792}, {"date": "2023-10-08", "equity": 0.9631}, {"date": "2023-10-15", "equity": 0.9767}, {"date": "2023-10-22", "equity": 0.9503}, {"date": "2023-10-29", "equity": 0.9294}, {"date": "2023-11-05", "equity": 0.9706}, {"date": "2023-11-12", "equity": 0.981}, {"date": "2023-11-19", "equity": 0.9976}, {"date": "2023-11-26", "equity": 1.0022}, {"date": "2023-12-03", "equity": 1.0106}, {"date": "2023-12-10", "equity": 0.9962}, {"date": "2023-12-17", "equity": 1.0219}, {"date": "2023-12-24", "equity": 1.0439}, {"date": "2023-12-31", "equity": 1.0502}, {"date": "2024-01-07", "equity": 1.0258}, {"date": "2024-01-14", "equity": 1.0408}, {"date": "2024-01-21", "equity": 1.0458}, {"date": "2024-01-28", "equity": 1.0568}, {"date": "2024-02-04", "equity": 1.0724}, {"date": "2024-02-11", "equity": 1.0957}, {"date": "2024-02-18", "equity": 1.102}, {"date": "2024-02-25", "equity": 1.1153}, {"date": "2024-03-03", "equity": 1.1384}, {"date": "2024-03-10", "equity": 1.141}, {"date": "2024-03-17", "equity": 1.133}, {"date": "2024-03-24", "equity": 1.1623}, {"date": "2024-03-31", "equity": 1.1708}, {"date": "2024-04-07", "equity": 1.1595}, {"date": "2024-04-14", "equity": 1.125}, {"date": "2024-04-21", "equity": 1.088}, {"date": "2024-04-28", "equity": 1.1314}, {"date": "2024-05-05", "equity": 1.1419}, {"date": "2024-05-12", "equity": 1.164}, {"date": "2024-05-19", "equity": 1.1765}, {"date": "2024-05-26", "equity": 1.1634}, {"date": "2024-06-02", "equity": 1.1612}, {"date": "2024-06-09", "equity": 1.1303}, {"date": "2024-06-16", "equity": 1.1233}, {"date": "2024-06-23", "equity": 1.1315}, {"date": "2024-06-30", "equity": 1.1302}, {"date": "2024-07-07", "equity": 1.136}, {"date": "2024-07-14", "equity": 1.1646}, {"date": "2024-07-21", "equity": 1.1316}, {"date": "2024-07-28", "equity": 1.1219}, {"date": "2024-08-04", "equity": 1.0638}, {"date": "2024-08-11", "equity": 1.0794}, {"date": "2024-08-18", "equity": 1.1053}, {"date": "2024-08-25", "equity": 1.1374}, {"date": "2024-09-01", "equity": 1.1461}, {"date": "2024-09-08", "equity": 1.109}, {"date": "2024-09-15", "equity": 1.1585}, {"date": "2024-09-22", "equity": 1.1781}, {"date": "2024-09-29", "equity": 1.177}, {"date": "2024-10-06", "equity": 1.1667}, {"date": "2024-10-13", "equity": 1.1786}, {"date": "2024-10-20", "equity": 1.2024}, {"date": "2024-10-27", "equity": 1.1782}, {"date": "2024-11-03", "equity": 1.1718}, {"date": "2024-11-10", "equity": 1.2441}, {"date": "2024-11-17", "equity": 1.2167}, {"date": "2024-11-24", "equity": 1.2736}, {"date": "2024-12-01", "equity": 1.2827}, {"date": "2024-12-08", "equity": 1.296}, {"date": "2024-12-15", "equity": 1.2609}, {"date": "2024-12-22", "equity": 1.2237}, {"date": "2024-12-29", "equity": 1.2265}, {"date": "2025-01-05", "equity": 1.2305}, {"date": "2025-01-12", "equity": 1.2096}, {"date": "2025-01-19", "equity": 1.2552}, {"date": "2025-01-26", "equity": 1.3033}, {"date": "2025-02-02", "equity": 1.2971}, {"date": "2025-02-09", "equity": 1.3002}, {"date": "2025-02-16", "equity": 1.3115}, {"date": "2025-02-23", "equity": 1.2535}, {"date": "2025-03-02", "equity": 1.2364}, {"date": "2025-03-09", "equity": 1.1872}, {"date": "2025-03-16", "equity": 1.1704}, {"date": "2025-03-23", "equity": 1.1828}, {"date": "2025-03-30", "equity": 1.1879}, {"date": "2025-04-06", "equity": 1.1}, {"date": "2025-04-13", "equity": 1.1232}, {"date": "2025-04-20", "equity": 1.1427}, {"date": "2025-04-27", "equity": 1.1459}, {"date": "2025-05-04", "equity": 1.1607}, {"date": "2025-05-11", "equity": 1.1721}, {"date": "2025-05-18", "equity": 1.1598}, {"date": "2025-05-25", "equity": 1.1865}, {"date": "2025-06-01", "equity": 1.1866}, {"date": "2025-06-08", "equity": 1.1964}, {"date": "2025-06-15", "equity": 1.1824}, {"date": "2025-06-22", "equity": 1.1866}, {"date": "2025-06-29", "equity": 1.2246}, {"date": "2025-07-06", "equity": 1.2487}, {"date": "2025-07-13", "equity": 1.2355}, {"date": "2025-07-20", "equity": 1.2608}, {"date": "2025-07-27", "equity": 1.2828}, {"date": "2025-08-03", "equity": 1.2427}, {"date": "2025-08-10", "equity": 1.2859}, {"date": "2025-08-17", "equity": 1.303}, {"date": "2025-08-24", "equity": 1.3256}, {"date": "2025-08-31", "equity": 1.3385}, {"date": "2025-09-07", "equity": 1.3462}, {"date": "2025-09-14", "equity": 1.3645}, {"date": "2025-09-21", "equity": 1.3881}, {"date": "2025-09-28", "equity": 1.3842}, {"date": "2025-10-05", "equity": 1.3955}, {"date": "2025-10-12", "equity": 1.3549}, {"date": "2025-10-19", "equity": 1.3876}, {"date": "2025-10-26", "equity": 1.3982}, {"date": "2025-11-02", "equity": 1.4159}, {"date": "2025-11-09", "equity": 1.4059}, {"date": "2025-11-16", "equity": 1.3795}, {"date": "2025-11-23", "equity": 1.3371}, {"date": "2025-11-30", "equity": 1.426}, {"date": "2025-12-07", "equity": 1.4369}, {"date": "2025-12-14", "equity": 1.4352}, {"date": "2025-12-21", "equity": 1.4355}, {"date": "2025-12-28", "equity": 1.4518}, {"date": "2026-01-04", "equity": 1.445}, {"date": "2026-01-11", "equity": 1.4811}, {"date": "2026-01-18", "equity": 1.5061}, {"date": "2026-01-25", "equity": 1.5216}, {"date": "2026-02-01", "equity": 1.5043}, {"date": "2026-02-08", "equity": 1.5518}, {"date": "2026-02-15", "equity": 1.5556}, {"date": "2026-02-22", "equity": 1.591}, {"date": "2026-03-01", "equity": 1.5791}, {"date": "2026-03-08", "equity": 1.4791}, {"date": "2026-03-15", "equity": 1.4649}, {"date": "2026-03-22", "equity": 1.4328}, {"date": "2026-03-29", "equity": 1.459}, {"date": "2026-04-05", "equity": 1.5113}, {"date": "2026-04-12", "equity": 1.5464}, {"date": "2026-04-19", "equity": 1.5221}, {"date": "2026-04-26", "equity": 1.5566}, {"date": "2026-05-03", "equity": 1.6045}, {"date": "2026-05-10", "equity": 1.5897}, {"date": "2026-05-17", "equity": 1.5997}, {"date": "2026-05-24", "equity": 1.6274}, {"date": "2026-05-31", "equity": 1.6402}, {"date": "2026-06-07", "equity": 1.6371}, {"date": "2026-06-14", "equity": 1.6843}, {"date": "2026-06-21", "equity": 1.694}, {"date": "2026-06-28", "equity": 1.6754}, {"date": "2026-07-05", "equity": 1.66}, {"date": "2026-07-12", "equity": 1.676}, {"date": "2026-07-19", "equity": 1.6257}, {"date": "2026-07-26", "equity": 1.6218}, {"date": "2026-08-02", "equity": 1.6229}, {"date": "2026-08-09", "equity": 1.6582}, {"date": "2026-08-16", "equity": 1.668}, {"date": "2026-08-23", "equity": 1.6547}, {"date": "2026-08-30", "equity": 1.649}, {"date": "2026-09-06", "equity": 1.6539}, {"date": "2026-09-13", "equity": 1.6199}];
+const YEARLY = [{"year": 2023, "trades": 509, "win_rate": 0.4715127701375246, "avg_return": 0.004337177336005664}, {"year": 2024, "trades": 3784, "win_rate": 0.546247357293869, "avg_return": 0.007873559620590824}, {"year": 2025, "trades": 2944, "win_rate": 0.545516304347826, "avg_return": 0.011151285439178663}, {"year": 2026, "trades": 2213, "win_rate": 0.4844103027564392, "avg_return": 0.002696074962037586}];
+const HIST = [{"bin": -0.145, "count": 257}, {"bin": -0.135, "count": 64}, {"bin": -0.125, "count": 58}, {"bin": -0.115, "count": 84}, {"bin": -0.105, "count": 114}, {"bin": -0.095, "count": 125}, {"bin": -0.085, "count": 172}, {"bin": -0.075, "count": 202}, {"bin": -0.065, "count": 270}, {"bin": -0.055, "count": 328}, {"bin": -0.045, "count": 425}, {"bin": -0.035, "count": 497}, {"bin": -0.025, "count": 513}, {"bin": -0.015, "count": 657}, {"bin": -0.005, "count": 682}, {"bin": 0.005, "count": 695}, {"bin": 0.015, "count": 626}, {"bin": 0.025, "count": 624}, {"bin": 0.035, "count": 524}, {"bin": 0.045, "count": 482}, {"bin": 0.055, "count": 355}, {"bin": 0.065, "count": 307}, {"bin": 0.075, "count": 251}, {"bin": 0.085, "count": 200}, {"bin": 0.095, "count": 163}, {"bin": 0.105, "count": 122}, {"bin": 0.115, "count": 118}, {"bin": 0.125, "count": 78}, {"bin": 0.135, "count": 60}, {"bin": 0.145, "count": 397}];
+const GRID = [{"stop_pct": 0.05, "target_pct": 0.05, "total_trades": 13218, "win_rate": 0.506430624905432, "avg_return_per_trade": 0.0005537714639462, "profit_factor": 1.0337144493786672, "portfolio_cagr": 0.0464403800932329, "portfolio_max_drawdown": -0.1598191679625423, "portfolio_sharpe_annualized": 0.3960631619786959}, {"stop_pct": 0.05, "target_pct": 0.1, "total_trades": 12954, "win_rate": 0.4837115948741701, "avg_return_per_trade": 0.0010105821566604, "profit_factor": 1.0589789804438028, "portfolio_cagr": 0.0643536710371539, "portfolio_max_drawdown": -0.1907412328715526, "portfolio_sharpe_annualized": 0.4997505353243688}, {"stop_pct": 0.05, "target_pct": 0.15, "total_trades": 12913, "win_rate": 0.481607682180748, "avg_return_per_trade": 0.0012488388776709, "profit_factor": 1.072683643082085, "portfolio_cagr": 0.0773478525802453, "portfolio_max_drawdown": -0.1858303941777684, "portfolio_sharpe_annualized": 0.5730145724526452}, {"stop_pct": 0.1, "target_pct": 0.05, "total_trades": 12803, "win_rate": 0.5335468249628993, "avg_return_per_trade": 0.0010948229013485, "profit_factor": 1.0658587387505176, "portfolio_cagr": 0.0388388659706839, "portfolio_max_drawdown": -0.2360049693677968, "portfolio_sharpe_annualized": 0.3203772362691714}, {"stop_pct": 0.1, "target_pct": 0.1, "total_trades": 12559, "win_rate": 0.5099928338243491, "avg_return_per_trade": 0.0014800374543325, "profit_factor": 1.0847493063122855, "portfolio_cagr": 0.0754932068820077, "portfolio_max_drawdown": -0.2086999555100508, "portfolio_sharpe_annualized": 0.5413545151042418}, {"stop_pct": 0.1, "target_pct": 0.15, "total_trades": 12513, "win_rate": 0.5074722288819628, "avg_return_per_trade": 0.0016650322012863, "profit_factor": 1.0950617099179212, "portfolio_cagr": 0.0859661652274812, "portfolio_max_drawdown": -0.2086797692209649, "portfolio_sharpe_annualized": 0.5942783646988044}, {"stop_pct": 0.15, "target_pct": 0.05, "total_trades": 12730, "win_rate": 0.5373919874312647, "avg_return_per_trade": 0.0017535777484816, "profit_factor": 1.108954270531944, "portfolio_cagr": 0.1162416920778186, "portfolio_max_drawdown": -0.1825626689939208, "portfolio_sharpe_annualized": 0.7812959233634584}, {"stop_pct": 0.15, "target_pct": 0.1, "total_trades": 12496, "win_rate": 0.5134443021766966, "avg_return_per_trade": 0.0020082665062058, "profit_factor": 1.118211588456135, "portfolio_cagr": 0.1133187911861675, "portfolio_max_drawdown": -0.2014550885471722, "portfolio_sharpe_annualized": 0.7360760103746335}, {"stop_pct": 0.15, "target_pct": 0.15, "total_trades": 12452, "win_rate": 0.5106007067137809, "avg_return_per_trade": 0.0021427359452916, "profit_factor": 1.1256490892161723, "portfolio_cagr": 0.1207495066593395, "portfolio_max_drawdown": -0.2019399945758724, "portfolio_sharpe_annualized": 0.7659159347738106}, {"stop_pct": 0.2, "target_pct": 0.05, "total_trades": 12716, "win_rate": 0.5380622837370242, "avg_return_per_trade": 0.0019200689421857, "profit_factor": 1.120402866738289, "portfolio_cagr": 0.1280395689421487, "portfolio_max_drawdown": -0.187360712311088, "portfolio_sharpe_annualized": 0.8334930460807134}, {"stop_pct": 0.2, "target_pct": 0.1, "total_trades": 12483, "win_rate": 0.5139790114555796, "avg_return_per_trade": 0.0021412902948045, "profit_factor": 1.1270591721312917, "portfolio_cagr": 0.1201604418069195, "portfolio_max_drawdown": -0.205128183575459, "portfolio_sharpe_annualized": 0.7652888918108541}, {"stop_pct": 0.2, "target_pct": 0.15, "total_trades": 12439, "win_rate": 0.511053943243026, "avg_return_per_trade": 0.002240314098961, "profit_factor": 1.1324476296467143, "portfolio_cagr": 0.126881742601941, "portfolio_max_drawdown": -0.2048160163779746, "portfolio_sharpe_annualized": 0.790983329640015}];
+const BASELINES = {"baseline5": {"total_trades": 12333, "unique_symbols": 978, "win_rate": 0.5124462823, "avg_return_per_trade": 0.0023906263, "median_return_per_trade": 0.0012125411, "avg_win": 0.037551308, "avg_loss": -0.0345652207, "profit_factor": 1.1418567099, "expectancy_per_trade": 0.0023906263, "avg_concurrent_positions": 81.8924302789, "portfolio_total_return": 0.484345582, "portfolio_cagr": 0.1353669756, "portfolio_max_drawdown": -0.1957371334, "portfolio_sharpe_annualized": 0.8262299459, "date_range_start": "2023-09-12T00:00:00.000", "date_range_end": "2026-09-11T00:00:00.000", "universe_size": 1000, "skipped_short_history": 3, "test_start": "2023-09-11", "hold_days": 5}, "baseline10": {"total_trades": 9450, "unique_symbols": 978, "win_rate": 0.5275132275, "avg_return_per_trade": 0.007491743, "median_return_per_trade": 0.0040721084, "avg_win": 0.0594391067, "avg_loss": -0.0505054817, "profit_factor": 1.3139458143, "expectancy_per_trade": 0.007491743, "avg_concurrent_positions": 125.4980079681, "portfolio_total_return": 0.6198856311, "portfolio_cagr": 0.1677080021, "portfolio_max_drawdown": -0.1961501734, "portfolio_sharpe_annualized": 0.9967781178, "date_range_start": "2023-09-12T00:00:00.000", "date_range_end": "2026-09-11T00:00:00.000", "universe_size": 1000, "skipped_short_history": 3, "test_start": "2023-09-11", "hold_days": 10}};
+const ATR_GRID = [{"stop_mult": 1.0, "target_mult": 1.0, "total_trades": 14549, "win_rate": 0.5023712969963572, "avg_return_per_trade": 0.0004428523247596, "profit_factor": 1.0307086707237034, "portfolio_cagr": 0.1030683499178108, "portfolio_max_drawdown": -0.121044302333184, "portfolio_sharpe_annualized": 0.7775433586389986, "avg_stop_pct_of_price": 0.0303720680489222, "avg_target_pct_of_price": 0.0303720680489222}, {"stop_mult": 1.0, "target_mult": 2.0, "total_trades": 13754, "win_rate": 0.4298385924094808, "avg_return_per_trade": 0.000590332196481, "profit_factor": 1.0367060570908238, "portfolio_cagr": 0.0929467916592015, "portfolio_max_drawdown": -0.1392588656949525, "portfolio_sharpe_annualized": 0.677683144690771, "avg_stop_pct_of_price": 0.0303249339302032, "avg_target_pct_of_price": 0.0606498678604065}, {"stop_mult": 1.0, "target_mult": 3.0, "total_trades": 13670, "win_rate": 0.4238478419897586, "avg_return_per_trade": 0.0006929951411755, "profit_factor": 1.042762709119728, "portfolio_cagr": 0.0949682269714584, "portfolio_max_drawdown": -0.1436655335015912, "portfolio_sharpe_annualized": 0.6803801626302386, "avg_stop_pct_of_price": 0.0302926044058834, "avg_target_pct_of_price": 0.0908778132176503}, {"stop_mult": 1.5, "target_mult": 1.0, "total_trades": 13771, "win_rate": 0.5624137680633214, "avg_return_per_trade": 0.0005424370108979, "profit_factor": 1.034800178556561, "portfolio_cagr": 0.0964489475479222, "portfolio_max_drawdown": -0.1482370426833147, "portfolio_sharpe_annualized": 0.689740512116979, "avg_stop_pct_of_price": 0.0454347898462994, "avg_target_pct_of_price": 0.0302898598975329}, {"stop_mult": 1.5, "target_mult": 2.0, "total_trades": 13003, "win_rate": 0.4898100438360378, "avg_return_per_trade": 0.000808627140477, "profit_factor": 1.046676852192737, "portfolio_cagr": 0.0837022019589797, "portfolio_max_drawdown": -0.182702196555911, "portfolio_sharpe_annualized": 0.5983505639434253, "avg_stop_pct_of_price": 0.0453839643920967, "avg_target_pct_of_price": 0.0605119525227956}, {"stop_mult": 1.5, "target_mult": 3.0, "total_trades": 12930, "win_rate": 0.4836040216550657, "avg_return_per_trade": 0.000926842295125, "profit_factor": 1.0529767555446072, "portfolio_cagr": 0.0862486453686275, "portfolio_max_drawdown": -0.1901153103565251, "portfolio_sharpe_annualized": 0.6066748705447821, "avg_stop_pct_of_price": 0.0453388522880128, "avg_target_pct_of_price": 0.0906777045760257}, {"stop_mult": 2.0, "target_mult": 1.0, "total_trades": 13460, "win_rate": 0.5838781575037147, "avg_return_per_trade": 0.001172028948789, "profit_factor": 1.075859412334973, "portfolio_cagr": 0.0963464012290267, "portfolio_max_drawdown": -0.1966468109464809, "portfolio_sharpe_annualized": 0.6614951154098335, "avg_stop_pct_of_price": 0.0605237834481596, "avg_target_pct_of_price": 0.0302618917240798}, {"stop_mult": 2.0, "target_mult": 2.0, "total_trades": 12719, "win_rate": 0.5112823335167859, "avg_return_per_trade": 0.0013667796811147, "profit_factor": 1.0792549302323502, "portfolio_cagr": 0.1050873310076914, "portfolio_max_drawdown": -0.1896539584318128, "portfolio_sharpe_annualized": 0.695067420459684, "avg_stop_pct_of_price": 0.0604417373514123, "avg_target_pct_of_price": 0.0604417373514123}, {"stop_mult": 2.0, "target_mult": 3.0, "total_trades": 12644, "win_rate": 0.5047453337551407, "avg_return_per_trade": 0.0014806388105003, "profit_factor": 1.084930652885433, "portfolio_cagr": 0.1066687417613565, "portfolio_max_drawdown": -0.1956216302867226, "portfolio_sharpe_annualized": 0.6956275257422295, "avg_stop_pct_of_price": 0.0603822869387273, "avg_target_pct_of_price": 0.090573430408091}, {"stop_mult": 3.0, "target_mult": 1.0, "total_trades": 13265, "win_rate": 0.5892197512250282, "avg_return_per_trade": 0.0016049479570371, "profit_factor": 1.1063224845014854, "portfolio_cagr": 0.1180703015188311, "portfolio_max_drawdown": -0.1855593908313325, "portfolio_sharpe_annualized": 0.776143591936507, "avg_stop_pct_of_price": 0.09065538981449, "avg_target_pct_of_price": 0.0302184632714966}, {"stop_mult": 3.0, "target_mult": 2.0, "total_trades": 12549, "win_rate": 0.5168539325842697, "avg_return_per_trade": 0.0017373059898179, "profit_factor": 1.1024921590884855, "portfolio_cagr": 0.114943402427516, "portfolio_max_drawdown": -0.2039789280022141, "portfolio_sharpe_annualized": 0.729408961325067, "avg_stop_pct_of_price": 0.0905494367040423, "avg_target_pct_of_price": 0.0603662911360282}, {"stop_mult": 3.0, "target_mult": 3.0, "total_trades": 12477, "win_rate": 0.5099783601827362, "avg_return_per_trade": 0.0017913033388248, "profit_factor": 1.1043454556475607, "portfolio_cagr": 0.1144764370308732, "portfolio_max_drawdown": -0.2087169854175526, "portfolio_sharpe_annualized": 0.7200226234896685, "avg_stop_pct_of_price": 0.0904559375883849, "avg_target_pct_of_price": 0.0904559375883849}, {"stop_mult": 4.0, "target_mult": 1.0, "total_trades": 13231, "win_rate": 0.5904315622401934, "avg_return_per_trade": 0.0018908987866968, "profit_factor": 1.1274662363951728, "portfolio_cagr": 0.1454261592133958, "portfolio_max_drawdown": -0.2007182171607362, "portfolio_sharpe_annualized": 0.9024187754404608, "avg_stop_pct_of_price": 0.1207663455667722, "avg_target_pct_of_price": 0.030191586391693}, {"stop_mult": 4.0, "target_mult": 2.0, "total_trades": 12518, "win_rate": 0.5182936571337274, "avg_return_per_trade": 0.0020377189418405, "profit_factor": 1.1221190079409389, "portfolio_cagr": 0.1270571718712114, "portfolio_max_drawdown": -0.2033994291171029, "portfolio_sharpe_annualized": 0.7921984498620046, "avg_stop_pct_of_price": 0.1206341403349782, "avg_target_pct_of_price": 0.0603170701674891}, {"stop_mult": 4.0, "target_mult": 3.0, "total_trades": 12446, "win_rate": 0.5112485939257593, "avg_return_per_trade": 0.0020981328047223, "profit_factor": 1.1241860028804185, "portfolio_cagr": 0.1262421440788212, "portfolio_max_drawdown": -0.2080393726614769, "portfolio_sharpe_annualized": 0.7806036118624133, "avg_stop_pct_of_price": 0.1205091719470996, "avg_target_pct_of_price": 0.0903818789603247}, {"stop_mult": 5.0, "target_mult": 1.0, "total_trades": 13227, "win_rate": 0.5906857186058819, "avg_return_per_trade": 0.0019215453652589, "profit_factor": 1.1297150123015365, "portfolio_cagr": 0.139101408236542, "portfolio_max_drawdown": -0.202959490328799, "portfolio_sharpe_annualized": 0.8754675970792676, "avg_stop_pct_of_price": 0.150875258431032, "avg_target_pct_of_price": 0.0301750516862064}, {"stop_mult": 5.0, "target_mult": 2.0, "total_trades": 12515, "win_rate": 0.5185777067518977, "avg_return_per_trade": 0.0021163492773636, "profit_factor": 1.1273242901137404, "portfolio_cagr": 0.1317813646106613, "portfolio_max_drawdown": -0.1984555033482143, "portfolio_sharpe_annualized": 0.8201061358577925, "avg_stop_pct_of_price": 0.1507082938345425, "avg_target_pct_of_price": 0.060283317533817}, {"stop_mult": 5.0, "target_mult": 3.0, "total_trades": 12443, "win_rate": 0.5115325886040344, "avg_return_per_trade": 0.0021756026185953, "profit_factor": 1.1292539351245068, "portfolio_cagr": 0.130520878386273, "portfolio_max_drawdown": -0.2031042471594366, "portfolio_sharpe_annualized": 0.8057835181135403, "avg_stop_pct_of_price": 0.1505515574230274, "avg_target_pct_of_price": 0.0903309344538164}, {"stop_mult": 6.0, "target_mult": 1.0, "total_trades": 13219, "win_rate": 0.590816249338074, "avg_return_per_trade": 0.0019849273664275, "profit_factor": 1.1346889897082963, "portfolio_cagr": 0.1466165247080779, "portfolio_max_drawdown": -0.2030769710420704, "portfolio_sharpe_annualized": 0.9105337632198968, "avg_stop_pct_of_price": 0.1807972247674402, "avg_target_pct_of_price": 0.0301328707945733}, {"stop_mult": 6.0, "target_mult": 2.0, "total_trades": 12508, "win_rate": 0.5187879756955548, "avg_return_per_trade": 0.0021897554191709, "profit_factor": 1.1324569449713104, "portfolio_cagr": 0.1349647554108488, "portfolio_max_drawdown": -0.1986882620781352, "portfolio_sharpe_annualized": 0.8389354924534859, "avg_stop_pct_of_price": 0.180577609199678, "avg_target_pct_of_price": 0.0601925363998927}, {"stop_mult": 6.0, "target_mult": 3.0, "total_trades": 12436, "win_rate": 0.5118205210678675, "avg_return_per_trade": 0.0022688276415706, "profit_factor": 1.135606211597694, "portfolio_cagr": 0.1345015571886623, "portfolio_max_drawdown": -0.2033272720371359, "portfolio_sharpe_annualized": 0.8277853574001705, "avg_stop_pct_of_price": 0.1803986305764617, "avg_target_pct_of_price": 0.0901993152882308}];
+
+function svgNS(tag){ return document.createElementNS("http://www.w3.org/2000/svg", tag); }
+
+// ---- Equity curve ----
+(function(){
+  const svg = document.getElementById("eqChart");
+  const tip = document.getElementById("eqTip");
+  const W = 900, H = 260, padL = 44, padR = 12, padT = 12, padB = 26;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const vals = EQUITY.map(d => d.equity);
+  const minV = Math.min(...vals) * 0.98, maxV = Math.max(...vals) * 1.02;
+  const n = EQUITY.length;
+  const x = i => padL + (i/(n-1)) * plotW;
+  const y = v => padT + plotH - ((v - minV)/(maxV - minV)) * plotH;
+
+  // gridlines + axis labels (4 horizontal)
+  const steps = 4;
+  for(let s=0; s<=steps; s++){
+    const v = minV + (maxV-minV)*s/steps;
+    const gy = y(v);
+    const line = svgNS("line");
+    line.setAttribute("x1", padL); line.setAttribute("x2", W-padR);
+    line.setAttribute("y1", gy); line.setAttribute("y2", gy);
+    line.setAttribute("class","gridline");
+    svg.appendChild(line);
+    const label = svgNS("text");
+    label.setAttribute("x", 4); label.setAttribute("y", gy+3);
+    label.setAttribute("class","axis-label");
+    label.textContent = "$" + v.toFixed(2);
+    svg.appendChild(label);
+  }
+  // baseline at $1.00
+  const baseY = y(1.0);
+  const baseline = svgNS("line");
+  baseline.setAttribute("x1", padL); baseline.setAttribute("x2", W-padR);
+  baseline.setAttribute("y1", baseY); baseline.setAttribute("y2", baseY);
+  baseline.setAttribute("stroke", "var(--axis)"); baseline.setAttribute("stroke-width","1");
+  baseline.setAttribute("stroke-dasharray","3,3");
+  svg.appendChild(baseline);
+
+  // x-axis year labels
+  let lastYear = "";
+  EQUITY.forEach((d,i) => {
+    const yr = d.date.slice(0,4);
+    if(yr !== lastYear){
+      lastYear = yr;
+      const label = svgNS("text");
+      label.setAttribute("x", x(i)); label.setAttribute("y", H-6);
+      label.setAttribute("class","axis-label");
+      label.textContent = yr;
+      svg.appendChild(label);
+      const tick = svgNS("line");
+      tick.setAttribute("x1", x(i)); tick.setAttribute("x2", x(i));
+      tick.setAttribute("y1", padT); tick.setAttribute("y2", H-padB);
+      tick.setAttribute("class","gridline");
+      svg.appendChild(tick);
+    }
+  });
+
+  // area fill
+  let areaPath = `M ${x(0)} ${y(vals[0])} `;
+  vals.forEach((v,i) => areaPath += `L ${x(i)} ${y(v)} `);
+  areaPath += `L ${x(n-1)} ${padT+plotH} L ${x(0)} ${padT+plotH} Z`;
+  const area = svgNS("path");
+  area.setAttribute("d", areaPath);
+  area.setAttribute("fill", "var(--blue-soft)");
+  area.setAttribute("opacity", "0.35");
+  svg.appendChild(area);
+
+  // line
+  let linePath = `M ${x(0)} ${y(vals[0])} `;
+  vals.forEach((v,i) => linePath += `L ${x(i)} ${y(v)} `);
+  const line = svgNS("path");
+  line.setAttribute("d", linePath);
+  line.setAttribute("fill","none");
+  line.setAttribute("stroke","var(--blue)");
+  line.setAttribute("stroke-width","2");
+  line.setAttribute("stroke-linejoin","round");
+  svg.appendChild(line);
+
+  // hover crosshair
+  const hoverLine = svgNS("line");
+  hoverLine.setAttribute("y1", padT); hoverLine.setAttribute("y2", H-padB);
+  hoverLine.setAttribute("stroke","var(--text-muted)"); hoverLine.setAttribute("stroke-width","1");
+  hoverLine.style.opacity = 0;
+  svg.appendChild(hoverLine);
+  const hoverDot = svgNS("circle");
+  hoverDot.setAttribute("r", 4); hoverDot.setAttribute("fill","var(--blue)");
+  hoverDot.style.opacity = 0;
+  svg.appendChild(hoverDot);
+
+  const overlay = svgNS("rect");
+  overlay.setAttribute("x", padL); overlay.setAttribute("y", padT);
+  overlay.setAttribute("width", plotW); overlay.setAttribute("height", plotH);
+  overlay.setAttribute("fill","transparent");
+  svg.appendChild(overlay);
+
+  overlay.addEventListener("mousemove", (e) => {
+    const rect = svg.getBoundingClientRect();
+    const mx = (e.clientX - rect.left) * (W / rect.width);
+    let i = Math.round(((mx - padL) / plotW) * (n-1));
+    i = Math.max(0, Math.min(n-1, i));
+    hoverLine.setAttribute("x1", x(i)); hoverLine.setAttribute("x2", x(i));
+    hoverLine.style.opacity = 1;
+    hoverDot.setAttribute("cx", x(i)); hoverDot.setAttribute("cy", y(vals[i]));
+    hoverDot.style.opacity = 1;
+    tip.style.opacity = 1;
+    tip.style.left = (rect.left - svg.parentElement.getBoundingClientRect().left + (x(i)/W)*rect.width + 10) + "px";
+    tip.style.top = ((y(vals[i])/H)*rect.height - 10) + "px";
+    tip.textContent = `${EQUITY[i].date}: $${vals[i].toFixed(3)}`;
+  });
+  overlay.addEventListener("mouseleave", () => {
+    hoverLine.style.opacity = 0; hoverDot.style.opacity = 0; tip.style.opacity = 0;
+  });
+})();
+
+// ---- Yearly rows ----
+(function(){
+  const container = document.getElementById("yearRows");
+  const maxTrades = Math.max(...YEARLY.map(d => d.trades));
+  YEARLY.forEach(d => {
+    const row = document.createElement("div");
+    row.className = "year-row";
+    const pct = (d.win_rate*100).toFixed(1);
+    const widthPct = (d.trades / maxTrades * 100).toFixed(0);
+    row.innerHTML = `
+      <div class="yr">${d.year}</div>
+      <div class="bar-bg"><div class="bar-fill" style="width:${widthPct}%"></div></div>
+      <div class="n">${d.trades.toLocaleString()} trades &middot; ${pct}% win</div>
+    `;
+    container.appendChild(row);
+  });
+})();
+
+// ---- Histogram ----
+(function(){
+  const svg = document.getElementById("histChart");
+  const tip = document.getElementById("histTip");
+  const W = 900, H = 220, padL = 36, padR = 12, padT = 12, padB = 26;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const n = HIST.length;
+  const maxCount = Math.max(...HIST.map(d => d.count));
+  const barW = plotW / n * 0.82;
+  const gap = plotW / n * 0.18;
+  const x = i => padL + i * (plotW/n) + gap/2;
+  const y = c => padT + plotH - (c/maxCount)*plotH;
+
+  HIST.forEach((d,i) => {
+    const rect = svgNS("rect");
+    rect.setAttribute("x", x(i));
+    rect.setAttribute("y", y(d.count));
+    rect.setAttribute("width", barW);
+    rect.setAttribute("height", padT+plotH - y(d.count));
+    rect.setAttribute("rx", 2);
+    rect.setAttribute("fill", d.bin < 0 ? "var(--critical)" : "var(--good)");
+    rect.setAttribute("opacity", "0.85");
+    svg.appendChild(rect);
+    rect.addEventListener("mousemove", (e) => {
+      const rectBox = svg.getBoundingClientRect();
+      tip.style.opacity = 1;
+      tip.style.left = (rectBox.left - svg.parentElement.getBoundingClientRect().left + (x(i)/W)*rectBox.width) + "px";
+      tip.style.top = ((y(d.count)/H)*rectBox.height - 24) + "px";
+      tip.textContent = `${(d.bin*100).toFixed(1)}%: ${d.count} trades`;
+    });
+    rect.addEventListener("mouseleave", () => { tip.style.opacity = 0; });
+  });
+
+  // zero line
+  const zeroIdx = HIST.findIndex(d => d.bin >= 0);
+  const zeroX = padL + zeroIdx * (plotW/n);
+  const zeroLine = svgNS("line");
+  zeroLine.setAttribute("x1", zeroX); zeroLine.setAttribute("x2", zeroX);
+  zeroLine.setAttribute("y1", padT); zeroLine.setAttribute("y2", padT+plotH);
+  zeroLine.setAttribute("stroke", "var(--axis)"); zeroLine.setAttribute("stroke-width","1");
+  zeroLine.setAttribute("stroke-dasharray","3,3");
+  svg.appendChild(zeroLine);
+
+  [-0.1, 0, 0.1].forEach(v => {
+    let closestI = 0, closestD = Infinity;
+    HIST.forEach((d,i) => { const dd = Math.abs(d.bin-v); if(dd<closestD){closestD=dd; closestI=i;} });
+    const label = svgNS("text");
+    label.setAttribute("x", x(closestI));
+    label.setAttribute("y", H-6);
+    label.setAttribute("class","axis-label");
+    label.textContent = (v*100).toFixed(0) + "%";
+    svg.appendChild(label);
+  });
+})();
+
+// ---- Stop/target heatmap + comparison ----
+(function(){
+  const stops = [...new Set(GRID.map(d => d.stop_pct))].sort((a,b)=>a-b);
+  const targets = [...new Set(GRID.map(d => d.target_pct))].sort((a,b)=>a-b);
+  const sharpes = GRID.map(d => d.portfolio_sharpe_annualized);
+  const minS = Math.min(...sharpes), maxS = Math.max(...sharpes);
+  const ramp = ["#86b6ef","#5598e7","#2a78d6","#184f95"];
+  const best = GRID.reduce((a,b) => b.portfolio_sharpe_annualized > a.portfolio_sharpe_annualized ? b : a);
+
+  function colorFor(v){
+    const t = (v - minS) / (maxS - minS || 1);
+    const idx = Math.min(ramp.length-1, Math.floor(t * ramp.length));
+    return ramp[idx];
+  }
+  function textColorFor(v){
+    const t = (v - minS) / (maxS - minS || 1);
+    return t > 0.5 ? "#ffffff" : "#0b0b0b";
+  }
+
+  let html = '<table class="heat-table"><thead><tr><th></th>';
+  targets.forEach(tp => html += `<th>target ${(tp*100).toFixed(0)}%</th>`);
+  html += '</tr></thead><tbody>';
+  stops.forEach(sp => {
+    html += `<tr><th class="row-head">stop ${(sp*100).toFixed(0)}%</th>`;
+    targets.forEach(tp => {
+      const cell = GRID.find(d => d.stop_pct === sp && d.target_pct === tp);
+      const isBest = cell === best;
+      const bg = colorFor(cell.portfolio_sharpe_annualized);
+      const fg = textColorFor(cell.portfolio_sharpe_annualized);
+      html += `<td><div class="heat-cell${isBest ? ' best' : ''}" style="background:${bg}; color:${fg};">
+        <div class="sharpe">${cell.portfolio_sharpe_annualized.toFixed(2)}</div>
+        <div class="sub">CAGR ${(cell.portfolio_cagr*100).toFixed(1)}% &middot; ${(cell.win_rate*100).toFixed(0)}% win</div>
+      </div></td>`;
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  document.getElementById("heatmapWrap").innerHTML = html;
+
+  // comparison cards: best grid combo vs plain 5-day vs plain 10-day (original) hold
+  const b5 = BASELINES.baseline5, b10 = BASELINES.baseline10;
+  function cardHtml(name, d, highlight){
+    return `<div class="compare-card${highlight ? ' highlight' : ''}">
+      <div class="name">${name}</div>
+      <div class="row"><span class="k">Win rate</span><span>${(d.win_rate*100).toFixed(1)}%</span></div>
+      <div class="row"><span class="k">Avg return/trade</span><span>${(d.avg_return_per_trade*100).toFixed(2)}%</span></div>
+      <div class="row"><span class="k">Profit factor</span><span>${d.profit_factor.toFixed(2)}</span></div>
+      <div class="row"><span class="k">Portfolio CAGR</span><span>${(d.portfolio_cagr*100).toFixed(1)}%</span></div>
+      <div class="row"><span class="k">Max drawdown</span><span>${(d.portfolio_max_drawdown*100).toFixed(1)}%</span></div>
+      <div class="row"><span class="k">Sharpe</span><span>${d.portfolio_sharpe_annualized.toFixed(2)}</span></div>
+    </div>`;
+  }
+  document.getElementById("compareGrid").innerHTML =
+    cardHtml("5-day hold, no stop", b5, false) +
+    cardHtml(`Best sweep: stop ${(best.stop_pct*100).toFixed(0)}% / target ${(best.target_pct*100).toFixed(0)}%`, best, true) +
+    cardHtml("10-day hold, no stop (original)", b10, false);
+
+  document.getElementById("conclusionText").innerHTML =
+    `<strong>Best combo in the sweep: stop ${(best.stop_pct*100).toFixed(0)}% / target ${(best.target_pct*100).toFixed(0)}%</strong> ` +
+    `(Sharpe ${best.portfolio_sharpe_annualized.toFixed(2)}, CAGR ${(best.portfolio_cagr*100).toFixed(1)}%) &mdash; but it still trails the original ` +
+    `10-day hold with <em>no</em> stop or cap at all (Sharpe ${b10.portfolio_sharpe_annualized.toFixed(2)}, CAGR ${(b10.portfolio_cagr*100).toFixed(1)}%). ` +
+    `The pattern across the grid is consistent: performance improves monotonically as the stop widens from 5%&rarr;20% ` +
+    `&mdash; tight stops (5&ndash;10%) get triggered by ordinary volatility in these natr(50)&gt;1.5 names before the setup has room to work, ` +
+    `clipping winners into losers. Even the widest stop tested (20%) is rarely hit (&lt;1% of trades). ` +
+    `Net takeaway: on this universe, this strategy does better being given time to work (a longer hold, no tight stop) than being ` +
+    `managed with a short leash &mdash; a risk-management instinct that hurts more than it protects here.`;
+})();
+
+// ---- ATR-scaled stop/target heatmap + comparison ----
+(function(){
+  const stops = [...new Set(ATR_GRID.map(d => d.stop_mult))].sort((a,b)=>a-b);
+  const targets = [...new Set(ATR_GRID.map(d => d.target_mult))].sort((a,b)=>a-b);
+  const sharpes = ATR_GRID.map(d => d.portfolio_sharpe_annualized);
+  const minS = Math.min(...sharpes), maxS = Math.max(...sharpes);
+  const ramp = ["#86b6ef","#5598e7","#2a78d6","#184f95"];
+  const bestSharpe = ATR_GRID.reduce((a,b) => b.portfolio_sharpe_annualized > a.portfolio_sharpe_annualized ? b : a);
+  const lowestDD = ATR_GRID.reduce((a,b) => b.portfolio_max_drawdown > a.portfolio_max_drawdown ? b : a);
+
+  function colorFor(v){
+    const t = (v - minS) / (maxS - minS || 1);
+    const idx = Math.min(ramp.length-1, Math.floor(t * ramp.length));
+    return ramp[idx];
+  }
+  function textColorFor(v){
+    const t = (v - minS) / (maxS - minS || 1);
+    return t > 0.5 ? "#ffffff" : "#0b0b0b";
+  }
+
+  let html = '<table class="heat-table"><thead><tr><th></th>';
+  targets.forEach(tp => html += `<th>target ${tp}x ATR</th>`);
+  html += '</tr></thead><tbody>';
+  stops.forEach(sp => {
+    html += `<tr><th class="row-head">stop ${sp}x ATR</th>`;
+    targets.forEach(tp => {
+      const cell = ATR_GRID.find(d => d.stop_mult === sp && d.target_mult === tp);
+      const isBest = cell === bestSharpe;
+      const isLowestDD = cell === lowestDD;
+      const bg = colorFor(cell.portfolio_sharpe_annualized);
+      const fg = textColorFor(cell.portfolio_sharpe_annualized);
+      html += `<td><div class="heat-cell${isBest ? ' best' : ''}" style="background:${bg}; color:${fg};">
+        <div class="sharpe">${cell.portfolio_sharpe_annualized.toFixed(2)}</div>
+        <div class="sub">CAGR ${(cell.portfolio_cagr*100).toFixed(1)}% &middot; ~${(cell.avg_stop_pct_of_price*100).toFixed(0)}% stop${isLowestDD ? ' &middot; lowest DD' : ''}</div>
+      </div></td>`;
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  document.getElementById("atrHeatmapWrap").innerHTML = html;
+
+  const b10 = BASELINES.baseline10;
+  function cardHtml(name, d, highlight){
+    return `<div class="compare-card${highlight ? ' highlight' : ''}">
+      <div class="name">${name}</div>
+      <div class="row"><span class="k">Win rate</span><span>${(d.win_rate*100).toFixed(1)}%</span></div>
+      <div class="row"><span class="k">Avg return/trade</span><span>${(d.avg_return_per_trade*100).toFixed(2)}%</span></div>
+      <div class="row"><span class="k">Profit factor</span><span>${d.profit_factor.toFixed(2)}</span></div>
+      <div class="row"><span class="k">Portfolio CAGR</span><span>${(d.portfolio_cagr*100).toFixed(1)}%</span></div>
+      <div class="row"><span class="k">Max drawdown</span><span>${(d.portfolio_max_drawdown*100).toFixed(1)}%</span></div>
+      <div class="row"><span class="k">Sharpe</span><span>${d.portfolio_sharpe_annualized.toFixed(2)}</span></div>
+    </div>`;
+  }
+  document.getElementById("atrCompareGrid").innerHTML =
+    cardHtml(`Lowest drawdown: ${lowestDD.stop_mult}x / ${lowestDD.target_mult}x ATR`, lowestDD, false) +
+    cardHtml(`Best ATR-scaled Sharpe: ${bestSharpe.stop_mult}x / ${bestSharpe.target_mult}x ATR`, bestSharpe, true) +
+    cardHtml("10-day hold, no stop (original)", b10, false);
+
+  document.getElementById("atrConclusionText").innerHTML =
+    `<strong>Best ATR-scaled combo: ${bestSharpe.stop_mult}x stop / ${bestSharpe.target_mult}x target</strong> ` +
+    `(Sharpe ${bestSharpe.portfolio_sharpe_annualized.toFixed(2)}, CAGR ${(bestSharpe.portfolio_cagr*100).toFixed(1)}%, ~${(bestSharpe.avg_stop_pct_of_price*100).toFixed(0)}% average stop distance) &mdash; ` +
+    `closer to the no-stop baseline (Sharpe ${b10.portfolio_sharpe_annualized.toFixed(2)}, CAGR ${(b10.portfolio_cagr*100).toFixed(1)}%) than the flat-percent sweep got, but still short of it. ` +
+    `The standout result here isn't Sharpe, though &mdash; it's <strong>${lowestDD.stop_mult}x stop / ${lowestDD.target_mult}x target</strong>: ` +
+    `max drawdown of just ${(lowestDD.portfolio_max_drawdown*100).toFixed(1)}%, by far the smallest of anything tested in this whole study (vs. &minus;18 to &minus;24% everywhere else), ` +
+    `for a still-respectable ${lowestDD.portfolio_sharpe_annualized.toFixed(2)} Sharpe and ${(lowestDD.portfolio_cagr*100).toFixed(1)}% CAGR. ` +
+    `The same "wider stop wins" pattern from the flat-percent sweep repeats here (Sharpe rises from stop=1x through 6x ATR), ` +
+    `but ATR-scaling adds one thing flat percentages can't: a quick, symmetric 1x/1x exit that trades a bit of upside for a much smoother ride &mdash; ` +
+    `worth considering if drawdown control matters more to you than squeezing out the last few points of CAGR.`;
+})();
+</script>

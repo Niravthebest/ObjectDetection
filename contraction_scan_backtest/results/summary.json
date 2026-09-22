@@ -1,0 +1,22 @@
+{
+  "total_trades":9450,
+  "unique_symbols":978,
+  "win_rate":0.5275132275,
+  "avg_return_per_trade":0.007491743,
+  "median_return_per_trade":0.0040721084,
+  "avg_win":0.0594391067,
+  "avg_loss":-0.0505054817,
+  "profit_factor":1.3139458143,
+  "expectancy_per_trade":0.007491743,
+  "avg_concurrent_positions":125.4980079681,
+  "portfolio_total_return":0.6198856311,
+  "portfolio_cagr":0.1677080021,
+  "portfolio_max_drawdown":-0.1961501734,
+  "portfolio_sharpe_annualized":0.9967781178,
+  "date_range_start":"2023-09-12T00:00:00.000",
+  "date_range_end":"2026-09-11T00:00:00.000",
+  "universe_size":1000,
+  "skipped_short_history":3,
+  "test_start":"2023-09-11",
+  "hold_days":10
+}
