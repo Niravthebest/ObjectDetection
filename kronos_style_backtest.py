@@ -1,241 +1,249 @@
 """
-Kronos-style candlestick-forecast backtest.
+Kronos-style mean-reversion DCA backtest (US stocks, long only, no leverage).
 
-Kronos (a foundation model for financial K-lines) forecasts future candles by
-turning recent OHLCV windows into tokens and sampling many possible future
-paths. This script is a lightweight stand-in that needs no GPU or model weights:
+Structure replicated from the Kronos marketing description:
+  1. Mean-reversion entry  -> RSI(2) oversold (optionally only above 200-day SMA)
+  2. Safety orders         -> add size at fixed % below first entry (capped ladder)
+  3. Time / dynamic exit   -> take-profit on avg cost, or close > SMA(5), or max hold days
+  4. Uncorrelation engine  -> max 15 names; new entries ranked by lowest correlation to book
 
-  1. Each day, the last LOOKBACK candles are turned into a normalized feature
-     window (log returns, candle body/wicks, range, volume z-score).
-  2. The K most similar windows from the *past* are found (analog forecasting).
-     Their realized next-HORIZON returns act as K sampled forecast paths.
-  3. From those samples we get an expected return and P(up).
-  4. Go long at the close if expected return > threshold and P(up) > min_prob,
-     otherwise stay in cash. Position is held for the next day's return.
-
-Everything is walk-forward: a window is only usable as an analog once its
-forward return is fully known, so there is no lookahead.
+Key output: REALIZED-only drawdown (what a closed-trade P&L display shows)
+versus MARK-TO-MARKET drawdown (what your account actually goes through).
 
 Usage:
-    pip install yfinance pandas numpy matplotlib
-    python kronos_style_backtest.py                      # SPY via yfinance
-    python kronos_style_backtest.py --ticker QQQ --start 2015-01-01
-    python kronos_style_backtest.py --csv data/SPY.csv   # offline data
+  pip install yfinance pandas numpy matplotlib
+  python kronos_style_backtest.py                 # real data via yfinance
+  python kronos_style_backtest.py --synthetic     # offline smoke test
+  python kronos_style_backtest.py --csv data/universe_ohlc.csv.gz   # offline real data
 """
-
 import argparse
-import os
-
 import numpy as np
 import pandas as pd
-import matplotlib
 
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
+# ------------------------------- parameters -------------------------------
+P = dict(
+    start="2021-01-04",
+    end=None,                    # None = today
+    capital=100_000.0,
+    max_positions=15,
+    base_pct=0.015,              # base order = 1.5% of equity
+    so_drops=[0.04, 0.08, 0.13], # safety-order triggers below FIRST entry price
+    so_mult=[1.0, 2.0, 3.0],     # safety-order size as multiple of base order
+    take_profit=0.03,            # exit when price >= avg cost * (1+tp)
+    dynamic_exit=True,           # also exit on close > SMA(5) if in profit
+    max_hold=20,                 # time stop, trading days
+    rsi_len=2, rsi_entry=10,
+    trend_filter=True,           # only buy above 200-day SMA
+    corr_lookback=60,
+    commission_bps=1.0,          # slippage+fees per side, basis points
+)
 
-
-# ----------------------------------------------------------------------------
-# Data
-# ----------------------------------------------------------------------------
-def load_data(ticker, start, end, csv_path):
-    if csv_path:
-        df = pd.read_csv(csv_path, parse_dates=["Date"], index_col="Date")
-        print(f"Loaded {len(df)} bars from {csv_path}")
-    else:
-        import yfinance as yf
-
-        df = yf.download(ticker, start=start, end=end, auto_adjust=True, progress=False)
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
-        if df.empty:
-            fallback = os.path.join("data", f"{ticker}.csv")
-            if os.path.exists(fallback):
-                print(f"yfinance returned no data; falling back to {fallback}")
-                return load_data(ticker, start, end, fallback)
-            raise SystemExit("No data downloaded. Check the ticker or pass --csv.")
-        print(f"Downloaded {len(df)} bars of {ticker} from Yahoo Finance")
-    df = df[["Open", "High", "Low", "Close", "Volume"]].astype(float).dropna()
-    if start:
-        df = df[df.index >= pd.Timestamp(start)]
-    if end:
-        df = df[df.index <= pd.Timestamp(end)]
-    return df
+UNIVERSE = """AAPL MSFT AMZN GOOGL META NVDA TSLA BRK-B JPM V MA UNH HD PG JNJ XOM CVX
+LLY ABBV MRK PFE KO PEP COST WMT MCD DIS NFLX ADBE CRM ORCL CSCO INTC AMD QCOM TXN
+AVGO IBM BA CAT DE GE HON LMT RTX UPS UNP NKE SBUX LOW TGT BAC WFC GS MS C AXP BLK
+SCHW T VZ CMCSA TMO ABT DHR MDT AMGN GILD BMY CVS LIN NEE DUK SO""".split()
 
 
-# ----------------------------------------------------------------------------
-# "Tokenizer": per-candle features
-# ----------------------------------------------------------------------------
-def candle_features(df):
-    o, h, l, c, v = (df[k].values for k in ["Open", "High", "Low", "Close", "Volume"])
-    prev_c = np.r_[np.nan, c[:-1]]
-    ret = np.log(c / prev_c)
-    body = (c - o) / prev_c
-    upper = (h - np.maximum(o, c)) / prev_c
-    lower = (np.minimum(o, c) - l) / prev_c
-    rng = (h - l) / prev_c
-    logv = np.log(v + 1)
-    vol_z = (logv - pd.Series(logv).rolling(50).mean()) / pd.Series(logv).rolling(50).std()
-    feats = np.column_stack([ret, body, upper, lower, rng, vol_z.values])
-    return feats
+# ------------------------------- data -------------------------------------
+def load_real(tickers, start, end):
+    import yfinance as yf
+    warm = (pd.Timestamp(start) - pd.Timedelta(days=400)).strftime("%Y-%m-%d")
+    raw = yf.download(tickers + ["SPY"], start=warm, end=end,
+                      auto_adjust=True, progress=False, group_by="column")
+    o, h, l, c = (raw[k].ffill() for k in ("Open", "High", "Low", "Close"))
+    return o, h, l, c
 
 
-def build_windows(feats, lookback):
-    """Scale each feature by its trailing 250-day std (past data only), then
-    flatten the last `lookback` candles into one pattern vector."""
-    scale = pd.DataFrame(feats).rolling(250, min_periods=100).std().shift(1).values
-    z = feats / scale
-    z[:, -1] = feats[:, -1]  # volume is already a z-score
-    n, f = feats.shape
-    X = np.full((n, lookback * f), np.nan)
-    for t in range(lookback - 1, n):
-        w = z[t - lookback + 1 : t + 1]
-        if not np.isnan(w).any():
-            X[t] = w.ravel()
-    return X
+def load_csv(path, tickers, start, end):
+    """Long-format CSV: Date,Symbol,Open,High,Low,Close[,Volume]."""
+    df = pd.read_csv(path, parse_dates=["Date"])
+    warm = pd.Timestamp(start) - pd.Timedelta(days=400)
+    df = df[(df.Date >= warm) & ((end is None) | (df.Date <= pd.Timestamp(end or "2100")))]
+    df = df[df.Symbol.isin(tickers + ["SPY"])]
+    wide = {k: df.pivot(index="Date", columns="Symbol", values=k).ffill()
+            for k in ("Open", "High", "Low", "Close")}
+    missing = set(tickers + ["SPY"]) - set(wide["Close"].columns)
+    if missing:
+        print(f"warning: no data for {sorted(missing)}")
+    return wide["Open"], wide["High"], wide["Low"], wide["Close"]
 
 
-# ----------------------------------------------------------------------------
-# Forecaster: sample K analog futures
-# ----------------------------------------------------------------------------
-def forecast(df, lookback, horizon, k, min_history):
-    feats = candle_features(df)
-    X = build_windows(feats, lookback)
-    close = df["Close"].values
-    fwd = np.full(len(df), np.nan)
-    fwd[:-horizon] = np.log(close[horizon:] / close[:-horizon])
-
-    exp_ret = np.full(len(df), np.nan)
-    p_up = np.full(len(df), np.nan)
-    valid = ~np.isnan(X).any(1)
-
-    for t in range(len(df)):
-        if not valid[t]:
-            continue
-        # analogs must have their forward return fully known by day t
-        lib_end = t - horizon
-        idx = np.where(valid[:lib_end + 1])[0] if lib_end >= 0 else np.array([], int)
-        if len(idx) < min_history:
-            continue
-        d = np.linalg.norm(X[idx] - X[t], axis=1)
-        pos = np.argpartition(d, k)[:k]
-        samples = fwd[idx[pos]]
-        w = 1.0 / (d[pos] + 1e-9)
-        exp_ret[t] = np.average(samples, weights=w)
-        p_up[t] = np.average(samples > 0, weights=w)
-    return pd.DataFrame({"exp_ret": exp_ret, "p_up": p_up}, index=df.index)
+def load_synthetic(tickers, start, end, seed=7):
+    rng = np.random.default_rng(seed)
+    idx = pd.bdate_range(pd.Timestamp(start) - pd.Timedelta(days=400),
+                         end or "2026-06-30")
+    n, k = len(idx), len(tickers) + 1
+    mkt = rng.normal(0.0004, 0.011, n)
+    mkt[int(n * .35):int(n * .45)] -= 0.004          # a 2022-style bear leg
+    rets = 0.8 * mkt[:, None] + rng.normal(0.0002, 0.015, (n, k))
+    c = pd.DataFrame(100 * np.exp(np.cumsum(rets, 0)), idx, tickers + ["SPY"])
+    o = c.shift(1).fillna(c) * (1 + rng.normal(0, .004, c.shape))
+    h = np.maximum(o, c) * (1 + abs(rng.normal(0, .006, c.shape)))
+    l = np.minimum(o, c) * (1 - abs(rng.normal(0, .006, c.shape)))
+    return o, h, l, c
 
 
-# ----------------------------------------------------------------------------
-# Backtest
-# ----------------------------------------------------------------------------
-def metrics(ret, pos=None):
-    ret = ret.dropna()
-    eq = (1 + ret).cumprod()
-    years = len(ret) / 252
-    cagr = eq.iloc[-1] ** (1 / years) - 1
-    vol = ret.std() * np.sqrt(252)
-    sharpe = ret.mean() / ret.std() * np.sqrt(252) if ret.std() > 0 else 0
-    downside = ret[ret < 0].std() * np.sqrt(252)
-    sortino = ret.mean() * 252 / downside if downside > 0 else 0
-    dd = (eq / eq.cummax() - 1).min()
-    out = {
-        "Total return": f"{eq.iloc[-1] - 1:.1%}",
-        "CAGR": f"{cagr:.2%}",
-        "Volatility": f"{vol:.2%}",
-        "Sharpe": f"{sharpe:.2f}",
-        "Sortino": f"{sortino:.2f}",
-        "Max drawdown": f"{dd:.1%}",
-        "Calmar": f"{cagr / abs(dd):.2f}" if dd < 0 else "n/a",
-    }
-    if pos is not None:
-        pos = pos.loc[ret.index]
-        out["Exposure"] = f"{pos.mean():.1%}"
-        out["Trades"] = int((pos.diff().abs() > 0).sum())
-        held = ret[pos > 0]
-        out["Hit rate (days in mkt)"] = f"{(held > 0).mean():.1%}" if len(held) else "n/a"
-    return out
+def rsi(close, n):
+    d = close.diff()
+    up = d.clip(lower=0).ewm(alpha=1 / n, adjust=False).mean()
+    dn = (-d.clip(upper=0)).ewm(alpha=1 / n, adjust=False).mean()
+    return 100 - 100 / (1 + up / dn)
 
 
-def run(args):
-    df = load_data(args.ticker, args.start, args.end, args.csv)
-    print(f"Range: {df.index[0].date()} -> {df.index[-1].date()}")
-    print("Building walk-forward forecasts ...")
-    fc = forecast(df, args.lookback, args.horizon, args.k, args.min_history)
+# ------------------------------- engine -----------------------------------
+def run(o, h, l, c, p):
+    spy = c.pop("SPY"); o, h, l = o.drop(columns="SPY"), h.drop(columns="SPY"), l.drop(columns="SPY")
+    r = rsi(c, p["rsi_len"])
+    sma200, sma5 = c.rolling(200).mean(), c.rolling(5).mean()
+    rets = c.pct_change()
+    fee = p["commission_bps"] / 1e4
 
-    signal = ((fc["exp_ret"] > args.threshold) & (fc["p_up"] > args.min_prob)).astype(float)
-    signal[fc["exp_ret"].isna()] = np.nan
+    dates = c.index[c.index >= p["start"]]
+    cash = p["capital"]
+    book = {}          # sym -> dict(shares, cost, first_px, next_so, days, base_usd)
+    pending = []       # symbols to buy at next open
+    trades, curve = [], []
+    realized = 0.0
 
-    daily = df["Close"].pct_change()
-    pos = signal.shift(1)  # decide at close t, earn return of t+1
-    start = pos.first_valid_index()
-    pos, daily = pos.loc[start:].fillna(0), daily.loc[start:]
-    costs = pos.diff().abs().fillna(0) * args.cost_bps / 1e4
-    strat = pos * daily - costs
+    for i, d in enumerate(dates):
+        # ---- 1. fill pending entries at the open
+        for s in pending:
+            if s in book or len(book) >= p["max_positions"]:
+                continue
+            px = o.at[d, s]
+            if not np.isfinite(px):
+                continue
+            eq = cash + sum(b["shares"] * c.at[dates[i - 1], k] for k, b in book.items())
+            usd = min(eq * p["base_pct"], cash)
+            if usd <= 0:
+                continue
+            sh = usd / px
+            cash -= usd * (1 + fee)
+            book[s] = dict(shares=sh, cost=usd, first_px=px, next_so=0,
+                           days=0, base_usd=usd, entry=d, orders=1)
+        pending = []
 
-    sma = (df["Close"] > df["Close"].rolling(200).mean()).astype(float).shift(1).loc[start:]
-    sma_ret = sma * daily - sma.diff().abs().fillna(0) * args.cost_bps / 1e4
+        # ---- 2. intraday: take-profit limits, safety-order limits
+        for s in list(book):
+            b = book[s]
+            op, hi, lo = o.at[d, s], h.at[d, s], l.at[d, s]
+            if not np.isfinite(op):
+                continue
+            avg = b["cost"] / b["shares"]
+            tp = avg * (1 + p["take_profit"])
+            if hi >= tp and b["days"] > 0:
+                _close(book, s, max(op, tp), d, "take_profit", trades, fee)
+                cash += trades[-1]["proceeds"]; realized += trades[-1]["pnl"]
+                continue
+            k = b["next_so"]
+            if k < len(p["so_drops"]):
+                trig = b["first_px"] * (1 - p["so_drops"][k])
+                if lo <= trig:
+                    fill = min(op, trig)
+                    usd = min(b["base_usd"] * p["so_mult"][k], cash)
+                    if usd > 0:
+                        b["shares"] += usd / fill; b["cost"] += usd
+                        cash -= usd * (1 + fee); b["orders"] += 1
+                    b["next_so"] += 1
 
-    results = pd.DataFrame(
-        {
-            "Kronos-style": metrics(strat, pos),
-            "Buy & hold": metrics(daily),
-            "SMA200 trend": metrics(sma_ret, sma),
-        }
-    )
-    print(f"\nTest period: {start.date()} -> {df.index[-1].date()} ({len(daily)} days)")
-    print(f"Params: lookback={args.lookback} horizon={args.horizon} k={args.k} "
-          f"threshold={args.threshold} min_prob={args.min_prob} cost={args.cost_bps}bps\n")
-    print(results.fillna("").to_string())
+        # ---- 3. end of day: exits for tomorrow's open handled as close fills
+        for s in list(book):
+            b = book[s]; b["days"] += 1
+            px = c.at[d, s]
+            avg = b["cost"] / b["shares"]
+            if b["days"] >= p["max_hold"]:
+                _close(book, s, px, d, "time_stop", trades, fee)
+            elif p["dynamic_exit"] and px > sma5.at[d, s] and px > avg:
+                _close(book, s, px, d, "dynamic", trades, fee)
+            else:
+                continue
+            cash += trades[-1]["proceeds"]; realized += trades[-1]["pnl"]
 
-    # forecast skill: does exp_ret rank realized forward returns?
-    fwd = np.log(df["Close"].shift(-args.horizon) / df["Close"])
-    both = pd.concat([fc["exp_ret"], fwd], axis=1).dropna()
-    ic = both.corr(method="spearman").iloc[0, 1]
-    print(f"\nForecast rank IC (exp_ret vs realized {args.horizon}d return): {ic:.3f}")
+        # ---- 4. signals for tomorrow, ranked by low correlation to book
+        slots = p["max_positions"] - len(book)
+        if slots > 0 and i < len(dates) - 1:
+            cand = [s for s in c.columns if s not in book
+                    and r.at[d, s] < p["rsi_entry"]
+                    and (not p["trend_filter"] or c.at[d, s] > sma200.at[d, s])]
+            if cand:
+                win = rets.loc[:d].tail(p["corr_lookback"])
+                if book:
+                    cm = win[cand + list(book)].corr()
+                    score = {s: cm.loc[s, list(book)].mean() for s in cand}
+                else:
+                    score = {s: r.at[d, s] for s in cand}
+                pending = sorted(cand, key=score.get)[:slots]
 
-    yearly = pd.DataFrame(
-        {
-            "Kronos-style": (1 + strat).groupby(strat.index.year).prod() - 1,
-            "Buy & hold": (1 + daily).groupby(daily.index.year).prod() - 1,
-        }
-    )
-    print("\nCalendar-year returns:")
-    print(yearly.map(lambda x: f"{x:.1%}").to_string())
+        mv = sum(b["shares"] * c.at[d, s] for s, b in book.items())
+        curve.append(dict(date=d, mtm=cash + mv, realized=p["capital"] + realized,
+                          exposure=mv / (cash + mv), n=len(book),
+                          open_pnl=mv - sum(b["cost"] for b in book.values())))
 
-    # plot
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), sharex=True,
-                                   gridspec_kw={"height_ratios": [3, 1]})
-    for name, r in [("Kronos-style", strat), ("Buy & hold", daily), ("SMA200 trend", sma_ret)]:
-        ax1.plot((1 + r).cumprod(), label=name)
-    ax1.set_yscale("log")
-    ax1.set_title(f"{args.ticker} Kronos-style analog forecast backtest")
-    ax1.set_ylabel("Growth of $1 (log)")
-    ax1.legend()
-    ax1.grid(alpha=0.3)
-    eq = (1 + strat).cumprod()
-    ax2.fill_between(eq.index, eq / eq.cummax() - 1, 0, alpha=0.5, label="Kronos-style DD")
-    bh = (1 + daily).cumprod()
-    ax2.plot(bh / bh.cummax() - 1, lw=0.8, color="gray", label="Buy & hold DD")
-    ax2.set_ylabel("Drawdown")
-    ax2.legend()
-    ax2.grid(alpha=0.3)
-    plt.tight_layout()
-    plt.savefig(args.out, dpi=120)
-    print(f"\nSaved chart to {args.out}")
+    eq = pd.DataFrame(curve).set_index("date")
+    eq["spy"] = p["capital"] * spy.reindex(eq.index) / spy.reindex(eq.index).iloc[0]
+    return eq, pd.DataFrame(trades)
+
+
+def _close(book, s, px, d, why, trades, fee):
+    b = book.pop(s)
+    proceeds = b["shares"] * px * (1 - fee)
+    trades.append(dict(symbol=s, entry=b["entry"], exit=d, reason=why,
+                       orders=b["orders"], cost=b["cost"], proceeds=proceeds,
+                       pnl=proceeds - b["cost"], ret=proceeds / b["cost"] - 1,
+                       days=b["days"]))
+
+
+# ------------------------------- report -----------------------------------
+def stats(series):
+    yrs = (series.index[-1] - series.index[0]).days / 365.25
+    cagr = (series.iloc[-1] / series.iloc[0]) ** (1 / yrs) - 1
+    dd = (series / series.cummax() - 1).min()
+    dr = series.pct_change().dropna()
+    sharpe = dr.mean() / dr.std() * np.sqrt(252) if dr.std() > 0 else np.nan
+    return cagr, dd, sharpe
+
+
+def report(eq, tr, png="kronos_backtest.png"):
+    print("\n=== Kronos-style DCA mean reversion ===")
+    for name, col in [("Mark-to-market (real)", "mtm"),
+                      ("Realized-only (closed P&L)", "realized"),
+                      ("SPY buy & hold", "spy")]:
+        cg, dd, sh = stats(eq[col])
+        print(f"{name:28s} CAGR {cg:7.1%}   MaxDD {dd:7.1%}   Sharpe {sh:5.2f}")
+    if len(tr):
+        print(f"\nTrades {len(tr)} | win rate {(tr.pnl > 0).mean():.1%} | "
+              f"avg win {tr.ret[tr.pnl > 0].mean():.2%} | avg loss {tr.ret[tr.pnl <= 0].mean():.2%}")
+        print(f"Trades that used ALL safety orders: {(tr.orders == tr.orders.max()).mean():.1%}")
+        print(f"Worst single trade: {tr.ret.min():.1%}   exit mix: "
+              + ", ".join(f"{k} {v:.0%}" for k, v in tr.reason.value_counts(normalize=True).items()))
+    print(f"Avg capital deployed {eq.exposure.mean():.1%} | peak {eq.exposure.max():.1%}")
+    print(f"Worst open (unrealized) loss on book: ${eq.open_pnl.min():,.0f}")
+    tr.to_csv("kronos_trades.csv", index=False)
+    eq.to_csv("kronos_equity.csv")
+
+    import matplotlib; matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    fig, ax = plt.subplots(3, 1, figsize=(10, 9), sharex=True,
+                           gridspec_kw=dict(height_ratios=[3, 2, 1]))
+    eq[["mtm", "realized", "spy"]].plot(ax=ax[0]); ax[0].set_title("Equity")
+    ax[0].legend(["Mark-to-market", "Realized only", "SPY"])
+    for col in ("mtm", "realized"):
+        (eq[col] / eq[col].cummax() - 1).plot(ax=ax[1], label=col)
+    ax[1].set_title("Drawdown"); ax[1].legend()
+    eq.exposure.plot(ax=ax[2]); ax[2].set_title("Capital deployed")
+    plt.tight_layout(); plt.savefig(png, dpi=110)
+    print(f"\nSaved {png}, kronos_trades.csv, kronos_equity.csv")
 
 
 if __name__ == "__main__":
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--ticker", default="SPY")
-    p.add_argument("--start", default="2016-01-01")
-    p.add_argument("--end", default=None)
-    p.add_argument("--csv", default=None, help="offline OHLCV CSV with a Date column")
-    p.add_argument("--lookback", type=int, default=20, help="candles per pattern window")
-    p.add_argument("--horizon", type=int, default=5, help="forecast horizon in days")
-    p.add_argument("--k", type=int, default=50, help="number of sampled analog paths")
-    p.add_argument("--threshold", type=float, default=0.0, help="min expected log return")
-    p.add_argument("--min-prob", type=float, default=0.55, help="min P(up) to go long")
-    p.add_argument("--min-history", type=int, default=500, help="analog library size before trading")
-    p.add_argument("--cost-bps", type=float, default=5.0, help="cost per position change")
-    p.add_argument("--out", default="kronos_backtest.png")
-    run(p.parse_args())
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--synthetic", action="store_true")
+    ap.add_argument("--csv", help="offline long-format OHLC file (Date,Symbol,Open,High,Low,Close)")
+    a = ap.parse_args()
+    if a.csv:
+        o, h, l, c = load_csv(a.csv, UNIVERSE, P["start"], P["end"])
+    else:
+        loader = load_synthetic if a.synthetic else load_real
+        o, h, l, c = loader(UNIVERSE, P["start"], P["end"])
+    eq, tr = run(o, h, l, c, P)
+    report(eq, tr)
