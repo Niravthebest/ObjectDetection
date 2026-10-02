@@ -5,7 +5,7 @@ Run the Stine superstock backtest.
   Out-of-sample (OOS): 2026-01-01 .. latest   -- run once with the IS-chosen params
 
 Data: weekly OHLCV CSVs in data/<SYMBOL>.csv (columns: date,open,high,low,close,volume)
-or, with --download, pulled from Yahoo Finance via yfinance (daily -> weekly).
+or, with --download, pulled from Yahoo Finance's chart API (daily -> weekly).
 
 usage: python run.py [--download] [--universe universe.txt]
 """
@@ -34,17 +34,40 @@ def to_weekly(daily: pd.DataFrame) -> pd.DataFrame:
     return w.dropna(subset=["close"])
 
 
+def fetch_daily(sym: str) -> pd.DataFrame:
+    """Daily bars from Yahoo's chart API, adjusted for splits and dividends."""
+    import time
+    import requests
+    p1 = int(pd.Timestamp(WARMUP_START).timestamp())
+    url = (f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}"
+           f"?period1={p1}&period2={int(time.time())}&interval=1d&events=split,div")
+    for attempt in range(4):
+        r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=30)
+        if r.status_code != 429:
+            break
+        time.sleep(2 ** (attempt + 1))
+    res = (r.json().get("chart") or {}).get("result")
+    if r.status_code != 200 or not res or "timestamp" not in res[0]:
+        return pd.DataFrame()
+    res = res[0]
+    q = res["indicators"]["quote"][0]
+    d = pd.DataFrame({k: q[k] for k in ["open", "high", "low", "close", "volume"]},
+                     index=pd.to_datetime(res["timestamp"], unit="s").normalize())
+    adj = res["indicators"].get("adjclose", [{}])[0].get("adjclose")
+    if adj is not None:
+        f = pd.Series(adj, index=d.index) / d["close"]
+        for c in ["open", "high", "low", "close"]:
+            d[c] = d[c] * f
+    return d.dropna(subset=["close"])
+
+
 def download(symbols: list[str]) -> None:
-    import yfinance as yf
     DATA.mkdir(exist_ok=True)
     for s in symbols:
-        d = yf.download(s, start=WARMUP_START, auto_adjust=True, progress=False)
+        d = fetch_daily(s)
         if d.empty:
             print("no data:", s)
             continue
-        if isinstance(d.columns, pd.MultiIndex):
-            d.columns = d.columns.get_level_values(0)
-        d.columns = [c.lower() for c in d.columns]
         to_weekly(d).rename_axis("date").to_csv(DATA / f"{s}.csv")
 
 
@@ -112,13 +135,17 @@ def dc_asdict(p):
 def plot(curves):
     import matplotlib
     matplotlib.use("Agg")
+    import matplotlib.dates as mdates
     import matplotlib.pyplot as plt
+    from matplotlib.ticker import FuncFormatter
     fig, axes = plt.subplots(1, 2, figsize=(13, 4.5), gridspec_kw={"width_ratios": [3, 1]})
     for ax, (name, (eq, spy)) in zip(axes, curves.items()):
         ax.plot(eq.index, eq / eq.iloc[0], label="Stine strategy", color="#1f6feb")
         ax.plot(spy.index, spy / spy.iloc[0], label="SPY buy & hold", color="#8b949e")
-        ax.set_title(name.replace("_", "-"))
-        ax.set_yscale("log")
+        ax.set_title(name.replace("_", "-") + " (growth of $1)")
+        ax.yaxis.set_major_formatter(FuncFormatter(lambda y, _: f"{y:.2f}x"))
+        if name == "out_of_sample":
+            ax.xaxis.set_major_formatter(mdates.DateFormatter("%b"))
         ax.grid(alpha=0.3)
         ax.legend()
     fig.tight_layout()

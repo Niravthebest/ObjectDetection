@@ -1,0 +1,41 @@
+{
+  "params": {
+    "base_weeks": 52,
+    "max_base_depth": 0.6,
+    "vol_mult": 3.0,
+    "min_price": 3.0,
+    "min_dollar_vol": 2000000.0,
+    "parabolic_pct": 0.8,
+    "rsi_blowoff": 85.0,
+    "hard_stop": 0.2,
+    "max_positions": 5,
+    "cost_per_side": 0.0025,
+    "regime_ma": 40
+  },
+  "in_sample": {
+    "total_return": 2.426982506878782,
+    "cagr": 0.14686314095143738,
+    "max_drawdown": -0.29274457130122145,
+    "sharpe": 0.7911083511337638,
+    "trades": 84,
+    "win_rate": 0.37037037037037035,
+    "profit_factor": 2.6491005255720883,
+    "avg_trade": 0.10227030861641254,
+    "exposure": 0.825531914893617,
+    "spy_buy_hold": 2.4730783717763476,
+    "period": "2017-01-02 .. 2025-12-29"
+  },
+  "out_of_sample": {
+    "total_return": -0.06794166964323523,
+    "cagr": NaN,
+    "max_drawdown": -0.09699769806741954,
+    "sharpe": -0.869039674025067,
+    "trades": 6,
+    "win_rate": 0.25,
+    "profit_factor": 0.2984439365981419,
+    "avg_trade": -0.0842905057492887,
+    "exposure": 0.8974358974358975,
+    "spy_buy_hold": 0.11755506618861222,
+    "period": "2026-01-05 .. 2026-09-28"
+  }
+}
