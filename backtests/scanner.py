@@ -10,7 +10,7 @@ past year, so no state file is needed.
 Usage: python scanner.py [--out DIR] [--no-stocks] [--min-expectancy PCT]
 
 Stocks are limited to those whose 1991-2026 backtest expectancy per trade
-(stock_rsi2_per_symbol.csv, >= 30 trades) meets --min-expectancy (default 1.5%).
+(stock_rsi2_per_symbol.csv, >= 30 trades) meets --min-expectancy (default 0.7%).
 
 The S&P 500 list covers nearly every NYSE U.S. 100 member; NYSE-listed
 stocks are flagged, and the NYSE U.S. 100 index itself is scanned.
@@ -103,7 +103,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=".")
     ap.add_argument("--no-stocks", action="store_true")
-    ap.add_argument("--min-expectancy", type=float, default=1.5,
+    ap.add_argument("--min-expectancy", type=float, default=0.7,
                     help="only scan stocks whose backtested expectancy per trade is at least this %% (0 = all)")
     a = ap.parse_args()
 
