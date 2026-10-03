@@ -120,6 +120,9 @@ def main():
     df = pd.DataFrame(res)
     df["is_index"] = df.symbol.isin(list(INDEX_SYMBOLS))
     df["nyse_listed"] = df.exchange.eq("NYQ")
+    st = pd.read_csv(STATS_CSV, index_col=0)  # backtested per-stock stats, in %
+    for k in ("win_rate", "avg_win", "avg_loss", "expectancy"):
+        df[f"bt_{k}"] = (df.symbol.map(st[k]) * 100).round(1).fillna("")
     order = {"ENTRY": 0, "EXIT": 1, "HOLD": 2, "WATCH": 3, "": 4}
     df = df.sort_values(["is_index", "signal", "rsi2"], key=lambda s: s.map(order) if s.name == "signal" else
                         (~s if s.dtype == bool else s), ascending=True)
@@ -136,19 +139,20 @@ def main():
         out += ["| " + " | ".join(str(v) for v in r) + " |" for r in sub[cols].itertuples(index=False)]
         return out + [""]
 
+    lines += ["bt_* columns = that stock's 1991-2026 backtest per trade, in % (win rate, avg win, avg loss, expectancy).", ""]
     lines += ["## Index signals (validated strategy)"]
     lines += table(df[df.is_index], ["symbol", "name", "signal", "close", "rsi2", "sma5", "sma200",
                                      "entry_date", "entry_price", "open_pnl_pct"])
     stocks = df[~df.is_index]
     if not stocks.empty:
-        lines += [f"## Stocks: {len(stocks)} S&P 500 names with backtested expectancy >= {a.min_expectancy}% per trade"]
+        lines += [f"## Stocks: {len(stocks)} S&P 500 names" + (f" with backtested expectancy >= {a.min_expectancy}% per trade" if a.min_expectancy > 0 else "")]
         for sig, title, cols in [
-            ("ENTRY", "New ENTRY triggers (buy at today's close)", ["symbol", "name", "nyse_listed", "close", "rsi2", "pct_vs_sma200"]),
-            ("EXIT", "EXIT triggers (sell at today's close)", ["symbol", "name", "close", "sma5", "entry_date", "entry_price", "open_pnl_pct"]),
-            ("HOLD", "Open per rules (waiting for close > 5-day SMA)", ["symbol", "close", "sma5", "entry_date", "open_pnl_pct"])]:
+            ("ENTRY", "New ENTRY triggers (buy at today's close)", ["symbol", "name", "close", "rsi2", "bt_win_rate", "bt_avg_win", "bt_avg_loss", "bt_expectancy"]),
+            ("EXIT", "EXIT triggers (sell at today's close)", ["symbol", "name", "close", "entry_date", "open_pnl_pct", "bt_win_rate", "bt_avg_win", "bt_avg_loss", "bt_expectancy"]),
+            ("HOLD", "Open per rules (waiting for close > 5-day SMA)", ["symbol", "close", "sma5", "entry_date", "open_pnl_pct", "bt_win_rate", "bt_avg_win", "bt_avg_loss", "bt_expectancy"])]:
             lines += [f"### {title}"] + table(stocks[stocks.signal == sig], cols)
         lines += [f"### Watchlist (RSI(2) < {WATCH_RSI}, above 200-day SMA)"]
-        lines += table(stocks[stocks.signal == "WATCH"].head(25), ["symbol", "close", "rsi2", "pct_vs_sma200"])
+        lines += table(stocks[stocks.signal == "WATCH"].head(25), ["symbol", "close", "rsi2", "bt_win_rate", "bt_avg_win", "bt_avg_loss", "bt_expectancy"])
 
     report = "\n".join(lines)
     stamp = f"{now:%Y-%m-%d}"
