@@ -7,7 +7,10 @@ Run near 3:45pm ET: Yahoo's latest daily bar holds the live price, which is
 used as today's close. Position status is rebuilt from the rules over the
 past year, so no state file is needed.
 
-Usage: python scanner.py [--out DIR] [--no-stocks]
+Usage: python scanner.py [--out DIR] [--no-stocks] [--min-expectancy PCT]
+
+Stocks are limited to those whose 1991-2026 backtest expectancy per trade
+(stock_rsi2_per_symbol.csv, >= 30 trades) meets --min-expectancy (default 1.5%).
 
 The S&P 500 list covers nearly every NYSE U.S. 100 member; NYSE-listed
 stocks are flagged, and the NYSE U.S. 100 index itself is scanned.
@@ -21,6 +24,7 @@ UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
 SP500_CSV = "https://raw.githubusercontent.com/datasets/s-and-p-500-companies/main/data/constituents.csv"
 INDEX_SYMBOLS = {"SPY": "SPDR S&P 500 ETF", "^NY": "NYSE U.S. 100 index", "^GSPC": "S&P 500 index"}
 WATCH_RSI = 20  # report near-misses below this RSI(2)
+STATS_CSV = __file__.replace("scanner.py", "stock_rsi2_per_symbol.csv")  # from stocks_rsi2.py
 
 def get(url, tries=4):
     for k in range(tries):
@@ -99,11 +103,18 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=".")
     ap.add_argument("--no-stocks", action="store_true")
+    ap.add_argument("--min-expectancy", type=float, default=1.5,
+                    help="only scan stocks whose backtested expectancy per trade is at least this %% (0 = all)")
     a = ap.parse_args()
 
     universe = dict(INDEX_SYMBOLS)
     if not a.no_stocks:
-        universe |= sp500()
+        picks = sp500()
+        if a.min_expectancy > 0:
+            st = pd.read_csv(STATS_CSV, index_col=0)
+            keep = st[(st.trades >= 30) & (st.expectancy * 100 >= a.min_expectancy)].index
+            picks = {k: v for k, v in picks.items() if k in keep}
+        universe |= picks
     with ThreadPoolExecutor(6) as ex:
         res = [r for r in ex.map(safe, universe.items()) if r]
     df = pd.DataFrame(res)
@@ -130,7 +141,7 @@ def main():
                                      "entry_date", "entry_price", "open_pnl_pct"])
     stocks = df[~df.is_index]
     if not stocks.empty:
-        lines += ["## Stocks (S&P 500; NYSE-listed flagged) — rules NOT backtested on single stocks"]
+        lines += [f"## Stocks: {len(stocks)} S&P 500 names with backtested expectancy >= {a.min_expectancy}% per trade"]
         for sig, title, cols in [
             ("ENTRY", "New ENTRY triggers (buy at today's close)", ["symbol", "name", "nyse_listed", "close", "rsi2", "pct_vs_sma200"]),
             ("EXIT", "EXIT triggers (sell at today's close)", ["symbol", "name", "close", "sma5", "entry_date", "entry_price", "open_pnl_pct"]),
