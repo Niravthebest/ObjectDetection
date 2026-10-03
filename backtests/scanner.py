@@ -52,6 +52,27 @@ def rsi(c, n=2):
     dn = (-d.clip(upper=0)).ewm(alpha=1 / n, adjust=False).mean()
     return 100 - 100 / (1 + up / dn)
 
+def next_day_levels(c):
+    """Closing prices that would fire a signal on the NEXT session:
+    buy_below : RSI(2) drops under 10 if the next close is below this
+    trend_floor: the next close must stay above this to be over the 200-day SMA
+    sell_above: an open trade exits if the next close is above this (next 5-day SMA)."""
+    d = c.diff()
+    up = d.clip(lower=0).ewm(alpha=0.5, adjust=False).mean().iloc[-1]
+    dn = (-d.clip(upper=0)).ewm(alpha=0.5, adjust=False).mean().iloc[-1]
+    last = c.iloc[-1]
+
+    def rsi_at(p):
+        u, v = 0.5 * up + 0.5 * max(p - last, 0), 0.5 * dn + 0.5 * max(last - p, 0)
+        return 100.0 if v == 0 else 100 - 100 / (1 + u / v)
+
+    lo, hi = last * 0.5, last * 1.5  # RSI rises with price: bisect for RSI == 10
+    for _ in range(60):
+        mid = (lo + hi) / 2
+        lo, hi = (mid, hi) if rsi_at(mid) < 10 else (lo, mid)
+    return dict(buy_below=round(lo, 2), trend_floor=round(c.iloc[-199:].mean(), 2),
+                sell_above=round(c.iloc[-4:].mean(), 2))
+
 def evaluate(symbol, name=""):
     df, meta = history(symbol)
     c = df["close"]
@@ -70,6 +91,7 @@ def evaluate(symbol, name=""):
         elif not pos and row.rsi2 < 10 and row.close > row.sma200:
             pos, entry_date, entry_px = True, dt, row.close
     t = df.iloc[-1]
+    lv = next_day_levels(c)
     if pos and t.close > t.sma5:
         signal = "EXIT"
     elif pos and entry_date == df.index[-1]:
@@ -86,7 +108,9 @@ def evaluate(symbol, name=""):
                 pct_vs_sma200=round((t.close / t.sma200 - 1) * 100, 1),
                 entry_date=entry_date.date().isoformat() if pos else "",
                 entry_price=round(entry_px, 2) if pos else "",
-                open_pnl_pct=round((t.close / entry_px - 1) * 100, 2) if pos else "")
+                open_pnl_pct=round((t.close / entry_px - 1) * 100, 2) if pos else "",
+                **lv, drop_needed_pct=round((lv["buy_below"] / t.close - 1) * 100, 1),
+                buy_zone_ok=lv["buy_below"] > lv["trend_floor"])
 
 def sp500():
     rows = list(csv.DictReader(io.StringIO(get(SP500_CSV).decode())))
@@ -151,6 +175,15 @@ def main():
             ("EXIT", "EXIT triggers (sell at today's close)", ["symbol", "name", "close", "entry_date", "open_pnl_pct", "bt_win_rate", "bt_avg_win", "bt_avg_loss", "bt_expectancy"]),
             ("HOLD", "Open per rules (waiting for close > 5-day SMA)", ["symbol", "close", "sma5", "entry_date", "open_pnl_pct", "bt_win_rate", "bt_avg_win", "bt_avg_loss", "bt_expectancy"])]:
             lines += [f"### {title}"] + table(stocks[stocks.signal == sig], cols)
+        nxt = stocks[stocks.signal.isin(["", "WATCH", "EXIT"]) & stocks.buy_zone_ok
+                     & (stocks.drop_needed_pct >= -3)].sort_values("drop_needed_pct", ascending=False)
+        lines += ["### Next session: buys if it closes below buy_below (and above trend_floor)",
+                  "drop_needed_pct = fall from the last close needed to trigger; within 3% shown."]
+        lines += table(nxt, ["symbol", "name", "close", "rsi2", "buy_below", "drop_needed_pct", "trend_floor",
+                             "bt_win_rate", "bt_avg_win", "bt_avg_loss", "bt_expectancy"])
+        held = stocks[stocks.signal.isin(["ENTRY", "HOLD"])]
+        lines += ["### Next session: open trades sell if they close above sell_above"]
+        lines += table(held, ["symbol", "close", "sell_above", "entry_date", "entry_price", "open_pnl_pct"])
         lines += [f"### Watchlist (RSI(2) < {WATCH_RSI}, above 200-day SMA)"]
         lines += table(stocks[stocks.signal == "WATCH"].head(25), ["symbol", "close", "rsi2", "bt_win_rate", "bt_avg_win", "bt_avg_loss", "bt_expectancy"])
 
