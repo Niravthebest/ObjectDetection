@@ -22,7 +22,8 @@ import numpy as np, pandas as pd
 
 UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
 SP500_CSV = "https://raw.githubusercontent.com/datasets/s-and-p-500-companies/main/data/constituents.csv"
-INDEX_SYMBOLS = {"SPY": "SPDR S&P 500 ETF", "^NY": "NYSE U.S. 100 index", "^GSPC": "S&P 500 index"}
+INDEX_SYMBOLS = {"SPY": "SPDR S&P 500 ETF", "^NY": "NYSE U.S. 100 index", "^GSPC": "S&P 500 index",
+                 "ES=F": "E-mini S&P 500 futures", "NQ=F": "E-mini Nasdaq-100 futures"}
 WATCH_RSI = 20  # report near-misses below this RSI(2)
 STATS_CSV = __file__.replace("scanner.py", "stock_rsi2_per_symbol.csv")  # from stocks_rsi2.py
 
@@ -164,9 +165,11 @@ def main():
         return out + [""]
 
     lines += ["bt_* columns = that stock's 1991-2026 backtest per trade, in % (win rate, avg win, avg loss, expectancy).", ""]
-    lines += ["## Index signals (validated strategy)"]
+    lines += ["## Index & futures signals (validated: SPY, ES, NQ)"]
     lines += table(df[df.is_index], ["symbol", "name", "signal", "close", "rsi2", "sma5", "sma200",
-                                     "entry_date", "entry_price", "open_pnl_pct"])
+                                     "entry_date", "entry_price", "open_pnl_pct", "buy_below", "sell_above"])
+    lines += ["Next session: buy_below = close needed to trigger a buy (if flat); "
+              "sell_above = close that exits an open trade.", ""]
     stocks = df[~df.is_index]
     if not stocks.empty:
         lines += [f"## Stocks: {len(stocks)} S&P 500 names" + (f" with backtested expectancy >= {a.min_expectancy}% per trade" if a.min_expectancy > 0 else "")]
