@@ -117,6 +117,18 @@ def sp500():
     rows = list(csv.DictReader(io.StringIO(get(SP500_CSV).decode())))
     return {r["Symbol"].replace(".", "-"): r["Security"] for r in rows}
 
+def exposure_target(symbol="SPY"):
+    """Vol-trend-dip rule from beat_bh.py: 15% vol target capped at 1.5x, 0 below the
+    200-day SMA, +1 while an RSI(2) dip trade is open. Units of S&P 500 exposure."""
+    df, _ = history(symbol)
+    c = df["close"]
+    vol = c.pct_change().rolling(20).std().iloc[-1] * np.sqrt(252)
+    above = c.iloc[-1] > c.rolling(200).mean().iloc[-1]
+    base = min(1.5, 0.15 / vol) if above else 0.0
+    row = evaluate(symbol) or {}
+    dip = row.get("signal") in ("ENTRY", "HOLD")
+    return dict(vol20=vol, above200=above, base=base, dip=dip, total=base + (1.0 if dip else 0.0))
+
 def safe(args):
     try:
         return evaluate(*args)
@@ -170,6 +182,17 @@ def main():
                                      "entry_date", "entry_price", "open_pnl_pct", "buy_below", "sell_above"])
     lines += ["Next session: buy_below = close needed to trigger a buy (if flat); "
               "sell_above = close that exits an open trade.", ""]
+    try:
+        x = exposure_target("SPY")
+        lines += ["## Vol-trend-dip target exposure (S&P 500 units, from SPY)",
+                  f"Target **{x['total']:.2f}x** = base {x['base']:.2f}x "
+                  f"(20-day vol {x['vol20']:.1%}; {'above' if x['above200'] else 'BELOW'} 200-day SMA → "
+                  f"{'0.15 / vol, capped at 1.5' if x['above200'] else 'flat'}) + dip {1.0 if x['dip'] else 0.0:.0f}x "
+                  f"({'RSI(2) dip trade open' if x['dip'] else 'no dip trade'}). "
+                  "Change the position only when the target moves by more than 0.1x. "
+                  "Example: 1.0x on a $100k account ≈ $100k of S&P exposure (≈ 0.26 ES or 2.6 MES contracts at 7,700).", ""]
+    except Exception as e:
+        lines += [f"_Vol-trend-dip exposure unavailable: {e}_", ""]
     stocks = df[~df.is_index]
     if not stocks.empty:
         lines += [f"## Stocks: {len(stocks)} S&P 500 names" + (f" with backtested expectancy >= {a.min_expectancy}% per trade" if a.min_expectancy > 0 else "")]
