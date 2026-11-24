@@ -16,7 +16,7 @@ pip install -r requirements.txt
 python sma_cross_scanner.py backtest              # refresh scores (weekly or monthly is enough)
 python sma_cross_scanner.py scan --min-signals 20 # run every day after 4:15pm ET
 ```
-Useful flags: `--universe sp500|nasdaq|both`, `--nasdaq-min-cap 1e9`, `--tickers AAPL,MSFT`,
+Useful flags: `--universe both|sp500|nasdaq|nasdaq100|sp500+nasdaq100`, `--list-source auto|slickcharts|github`, `--nasdaq-min-cap 1e9`, `--tickers AAPL,MSFT`,
 `--min-score 0.5`, `--top 30`, `--years 5`, `--asof 2026-11-20` (replay a past day).
 
 Output is written to `results/`:
@@ -45,5 +45,14 @@ Treat a high score as a weak tiebreaker, not as evidence of an edge. Also note t
 universe is today's index members, so the backtest has survivorship bias (stocks that dropped
 out of the indexes aren't tested).
 
-Data sources: Yahoo Finance chart API for prices; GitHub (datasets/s-and-p-500-companies and
-rreichel3/US-Stock-Symbols) for the ticker lists.
+## Data sources
+- Prices come from the Yahoo Finance chart API.
+- Index membership comes from [slickcharts.com](https://www.slickcharts.com) (`/sp500`, `/nasdaq100`) by default.
+  Slickcharts sits behind a Cloudflare bot check. From a home connection it may load; from cloud
+  servers it is usually blocked. When it can't be read, the script says so and falls back to GitHub:
+  - S&P 500: datasets/s-and-p-500-companies (the exact index list).
+  - Nasdaq-100: approximated as the 100 largest non-financial Nasdaq-listed companies (from
+    rreichel3/US-Stock-Symbols), which is close to the real index but not identical.
+- `--list-source slickcharts` uses slickcharts only and fails if it's blocked, instead of falling back.
+- `--universe nasdaq` / `both` (all Nasdaq-listed stocks above `--nasdaq-min-cap`) always use the
+  rreichel3 list, since slickcharts only publishes the Nasdaq-100.

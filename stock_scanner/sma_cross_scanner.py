@@ -26,7 +26,11 @@ USAGE:
     python sma_cross_scanner.py scan --min-signals 10 --min-score 0.5
 
     Options common to both:
-        --universe sp500|nasdaq|both   (default both)
+        --universe both|sp500|nasdaq|nasdaq100|sp500+nasdaq100   (default both)
+                                       both = S&P 500 + all Nasdaq-listed >= --nasdaq-min-cap
+        --list-source auto|slickcharts|github
+                                       where index member lists come from. auto (default)
+                                       tries slickcharts.com first, then falls back to GitHub.
         --nasdaq-min-cap 1e9           Nasdaq market-cap floor (drops micro caps/SPACs)
         --tickers AAPL,MSFT            explicit list, overrides --universe
         --out-dir results
@@ -38,6 +42,7 @@ from __future__ import annotations
 
 import argparse
 import io
+import re
 import json
 import math
 import os
@@ -54,6 +59,7 @@ FAST, SLOW, HOLD = 14, 30, 5
 
 SP500_URL = "https://raw.githubusercontent.com/datasets/s-and-p-500-companies/main/data/constituents.csv"
 NASDAQ_URL = "https://raw.githubusercontent.com/rreichel3/US-Stock-Symbols/main/nasdaq/nasdaq_full_tickers.json"
+SLICK_URL = "https://www.slickcharts.com/{index}"   # sp500 | nasdaq100
 CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{sym}"
 UA = {"User-Agent": "Mozilla/5.0"}
 
@@ -65,18 +71,87 @@ if os.path.exists(_ca) and not os.environ.get("REQUESTS_CA_BUNDLE"):
 
 
 # --------------------------------------------------------------------------- universe
-def load_universe(universe: str, nasdaq_min_cap: float, min_price: float = 5.0) -> pd.DataFrame:
+_SLICK_LINK = re.compile(r'href="/symbol/([A-Za-z0-9.\-]+)"[^>]*>\s*([^<]+?)\s*</a>')
+
+
+def parse_slickcharts(html: str) -> pd.DataFrame:
+    """Extract (symbol, company) pairs from a slickcharts index-weights page.
+    Each row links the company name and the ticker to /symbol/<TICKER>."""
+    names: dict[str, str] = {}
+    for sym, text in _SLICK_LINK.findall(html):
+        sym = sym.upper()
+        names.setdefault(sym, "")
+        if text.upper() != sym and not names[sym]:
+            names[sym] = text
+    return pd.DataFrame({"symbol": list(names), "name": list(names.values())})
+
+
+def fetch_slickcharts(index: str) -> pd.DataFrame:
+    r = SESSION.get(SLICK_URL.format(index=index), timeout=30)
+    if r.status_code != 200 or "/symbol/" not in r.text:
+        reason = "bot challenge (Cloudflare)" if "Just a moment" in r.text else f"HTTP {r.status_code}"
+        raise RuntimeError(f"slickcharts {index}: {reason}")
+    df = parse_slickcharts(r.text)
+    lo = {"sp500": 480, "nasdaq100": 95}[index]
+    if len(df) < lo:
+        raise RuntimeError(f"slickcharts {index}: only {len(df)} symbols parsed")
+    return df
+
+
+def _nasdaq_listed() -> pd.DataFrame:
+    r = SESSION.get(NASDAQ_URL, timeout=60)
+    r.raise_for_status()
+    nq = pd.DataFrame(r.json())
+    nq["marketCap"] = pd.to_numeric(nq["marketCap"], errors="coerce").fillna(0)
+    return nq
+
+
+def _github_sp500() -> pd.DataFrame:
+    r = SESSION.get(SP500_URL, timeout=30)
+    r.raise_for_status()
+    sp = pd.read_csv(io.StringIO(r.text))
+    return pd.DataFrame({"symbol": sp["Symbol"], "name": sp["Security"], "sector": sp["GICS Sector"]})
+
+
+def _github_nasdaq100_approx() -> pd.DataFrame:
+    """Fallback only: 100 largest Nasdaq-listed non-financial companies (the
+    Nasdaq-100's rule), one share class per company. Close to, not identical to, the index."""
+    nq = _nasdaq_listed()
+    nq = nq[(nq["sector"] != "Finance") & ~nq["symbol"].str.contains(r"[\^/ ]", regex=True)]
+    nq = nq[~nq["name"].fillna("").str.contains(r"(?i)preferred|warrant|\bunits?\b|\brights?\b|notes due")]
+    nq = nq.sort_values("marketCap", ascending=False)
+    nq["co"] = nq["name"].str.replace(r"(?i)\s+class [a-c].*|\s+(common|capital|ordinary) stock.*", "", regex=True)
+    nq = nq.drop_duplicates("co").head(100)
+    return pd.DataFrame({"symbol": nq["symbol"], "name": nq["name"], "sector": nq["sector"]})
+
+
+def load_index(index: str, source: str) -> pd.DataFrame:
+    """index: 'sp500' or 'nasdaq100'. Returns symbol/name/sector."""
+    if source in ("auto", "slickcharts"):
+        try:
+            df = fetch_slickcharts(index)
+            df["sector"] = np.nan
+            print(f"  {index}: {len(df)} symbols from slickcharts", file=sys.stderr)
+            return df
+        except Exception as e:
+            if source == "slickcharts":
+                raise
+            print(f"  {e} -> falling back to GitHub list", file=sys.stderr)
+    df = _github_sp500() if index == "sp500" else _github_nasdaq100_approx()
+    note = "" if index == "sp500" else " (approximation: top 100 non-financial by market cap)"
+    print(f"  {index}: {len(df)} symbols from GitHub{note}", file=sys.stderr)
+    return df
+
+
+def load_universe(universe: str, nasdaq_min_cap: float, min_price: float = 5.0,
+                  source: str = "auto") -> pd.DataFrame:
     frames = []
-    if universe in ("sp500", "both"):
-        r = SESSION.get(SP500_URL, timeout=30)
-        r.raise_for_status()
-        sp = pd.read_csv(io.StringIO(r.text))
-        frames.append(pd.DataFrame({"symbol": sp["Symbol"], "name": sp["Security"],
-                                    "sector": sp["GICS Sector"], "index": "S&P500"}))
+    if universe in ("sp500", "both", "sp500+nasdaq100"):
+        frames.append(load_index("sp500", source).assign(index="S&P500"))
+    if universe in ("nasdaq100", "sp500+nasdaq100"):
+        frames.append(load_index("nasdaq100", source).assign(index="NDX100"))
     if universe in ("nasdaq", "both"):
-        r = SESSION.get(NASDAQ_URL, timeout=60)
-        r.raise_for_status()
-        nq = pd.DataFrame(r.json())
+        nq = _nasdaq_listed()
         nq["marketCap"] = pd.to_numeric(nq["marketCap"], errors="coerce").fillna(0)
         nq["price"] = pd.to_numeric(nq["lastsale"].str.replace("$", "", regex=False), errors="coerce")
         nq = nq[(nq["marketCap"] >= nasdaq_min_cap) & (nq["price"] >= min_price)]
@@ -205,7 +280,7 @@ def resolve_universe(args) -> pd.DataFrame:
         syms = [s.strip().upper() for s in args.tickers.split(",") if s.strip()]
         return pd.DataFrame({"symbol": syms, "name": "", "sector": "", "index": "custom"})
     print(f"Loading universe '{args.universe}' ...", file=sys.stderr)
-    u = load_universe(args.universe, args.nasdaq_min_cap)
+    u = load_universe(args.universe, args.nasdaq_min_cap, source=args.list_source)
     print(f"  {len(u)} symbols", file=sys.stderr)
     return u
 
@@ -307,7 +382,7 @@ def cmd_scan(args) -> None:
     res.to_csv(out, index=False)
     pd.set_option("display.width", 200)
     print(f"\n{len(res)} stocks crossed above SMA14 (and above SMA30) on {date}"
-          f" - top {min(args.top, len(res))} by backtest score:\n")
+          f" - top {min(args.top, len(res))}{' by backtest score' if scores is not None else ' (unscored)'}:\n")
     cols = [c for c in ["symbol", "close", "chg_pct", "pct_above_sma14", "vol_vs_20d", "signals",
                         "win_rate", "score", "avg_ret_5d", "edge", "index"] if c in res.columns]
     print(res[cols].head(args.top).to_string(index=False))
@@ -317,7 +392,9 @@ def cmd_scan(args) -> None:
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("command", choices=["backtest", "scan"])
-    p.add_argument("--universe", choices=["sp500", "nasdaq", "both"], default="both")
+    p.add_argument("--universe", choices=["both", "sp500", "nasdaq", "nasdaq100", "sp500+nasdaq100"],
+                   default="both")
+    p.add_argument("--list-source", choices=["auto", "slickcharts", "github"], default="auto")
     p.add_argument("--nasdaq-min-cap", type=float, default=1e9)
     p.add_argument("--tickers", default="")
     p.add_argument("--years", type=int, default=5, help="backtest history length")
