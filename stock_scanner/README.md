@@ -56,3 +56,41 @@ out of the indexes aren't tested).
 - `--list-source slickcharts` uses slickcharts only and fails if it's blocked, instead of falling back.
 - `--universe nasdaq` / `both` (all Nasdaq-listed stocks above `--nasdaq-min-cap`) always use the
   rreichel3 list, since slickcharts only publishes the Nasdaq-100.
+
+---
+
+# Scanner 2: near the 52-week high (port of a Chartink scan)
+
+`near_52wh_scanner.py` applies the "Stock near 5% of 52 week high" Chartink scan to US stocks.
+A stock passes when all of these are true:
+
+- The close is within 5% of the 52-week high.
+- The close is above where it was 65 days ago.
+- The close is above $100.
+- The 20-day EMA is above the 50-day EMA, and the close is above the 21-day EMA.
+- Volume is above 50,000 shares.
+- Return on capital employed (ROCE) is above 15% and return on equity (ROE) is at least 15%, using yearly figures.
+
+Fundamentals are point-in-time: each fiscal year's numbers are used only from 90 days after the
+year ends, roughly when the annual report is public. Yahoo provides about 4 years of annual data,
+so the full scan, including ROCE and ROE, can only be tested from 2022-03-31 onward.
+
+```bash
+python near_52wh_scanner.py scan                  # today's list (add --fresh-only for new entries only)
+python near_52wh_scanner.py backtest --min-price 100
+```
+
+## Results (S&P 500 + Nasdaq above $1B, 1,315 stocks)
+A fresh entry is the first day a stock passes after not passing the day before.
+
+| Test (2022-03-31 to 2026-11-23, $100 floor) | Signals | Win rate, 5 days | Median, 5 days | Win rate, 20 days | Median, 20 days |
+|---|---|---|---|---|---|
+| Baseline (every stock, every day) | 1,407,907 | 51.7% | +0.19% | 53.0% | +0.70% |
+| Price and trend conditions only, fresh entry | 14,364 | 51.1% | +0.11% | 51.7% | +0.35% |
+| Full scan, every day it passes | 30,406 | 52.5% | +0.20% | 53.6% | +0.69% |
+| Full scan, fresh entry | 4,014 | 52.6% | +0.23% | 52.6% | +0.58% |
+
+The full scan beats the baseline by only about 1 percentage point, and its average returns are
+lower than the baseline's. The price and trend conditions alone lost to buying at random in
+2021 and 2022, and roughly matched it from 2023 to 2026. With a $10 price floor the results are
+nearly the same. Year-by-year results and per-stock scores are saved in `results/near52wh_p*_*.csv`.

@@ -192,7 +192,7 @@ def fetch_history(sym: str, rng: str, retries: int = 4) -> pd.DataFrame | None:
                 return None
             q = res["indicators"]["quote"][0]
             adj = res["indicators"].get("adjclose", [{}])[0].get("adjclose", q["close"])
-            df = pd.DataFrame({"close": q["close"], "adj": adj, "volume": q["volume"]},
+            df = pd.DataFrame({"close": q["close"], "adj": adj, "high": q["high"], "volume": q["volume"]},
                               index=pd.to_datetime(ts, unit="s", utc=True)
                                       .tz_convert("America/New_York").normalize().tz_localize(None))
             df = df[~df.index.duplicated(keep="last")].dropna(subset=["close"])
