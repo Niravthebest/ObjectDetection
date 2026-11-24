@@ -1,0 +1,10 @@
+{
+  "generated_utc": "2026-11-24T03:42:42+00:00",
+  "years": 5,
+  "symbols_tested": 1315,
+  "total_signals": 62747,
+  "overall_win_rate": 0.5033,
+  "overall_avg_ret_5d": 0.00256,
+  "overall_median_ret_5d": 0.0005,
+  "avg_base_win_rate_5d": 0.5129
+}
