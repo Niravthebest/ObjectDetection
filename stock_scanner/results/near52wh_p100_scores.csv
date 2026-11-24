@@ -3,7 +3,7 @@ DECK,10,9,0.02066,0.9,0.5958,Deckers Brands,S&P500
 TRGP,29,22,0.02146,0.7586,0.5789,Targa Resources,S&P500
 GDDY,16,13,0.01107,0.8125,0.5699,GoDaddy,S&P500
 ALLE,19,15,0.01992,0.7895,0.5667,Allegion,S&P500
-PWR,53,37,0.00924,0.6981,0.5646,Quanta Services,S&P500
+PWR,53,37,0.00925,0.6981,0.5646,Quanta Services,S&P500
 UFPT,41,29,0.01431,0.7073,0.5552,UFP Technologies Inc. Common Stock,Nasdaq
 WDAY,12,10,0.03142,0.8333,0.552,"Workday, Inc.",Nasdaq+S&P500
 CDW,21,16,0.01541,0.7619,0.5491,CDW Corporation,Nasdaq+S&P500
@@ -440,7 +440,7 @@ GLW,10,5,-0.00614,0.5,0.2366,Corning Inc.,S&P500
 PNR,10,5,-0.0083,0.5,0.2366,Pentair,S&P500
 BX,25,10,-0.00445,0.4,0.234,Blackstone Inc.,S&P500
 ABNB,22,9,-0.01236,0.4091,0.2326,Airbnb,Nasdaq+S&P500
-WING,22,9,0.00341,0.4091,0.2326,Wingstop Inc. Common Stock,Nasdaq
+WING,22,9,0.00216,0.4091,0.2326,Wingstop Inc. Common Stock,Nasdaq
 AVY,19,8,-0.007,0.4211,0.2314,Avery Dennison,S&P500
 AVAV,16,7,-0.00899,0.4375,0.231,AeroVironment Inc. Common Stock,Nasdaq
 DIS,16,7,0.00053,0.4375,0.231,Walt Disney Company (The),S&P500
@@ -498,7 +498,7 @@ WFRD,15,6,-0.01476,0.4,0.1982,Weatherford International Corp Common Stock,Nasdaq
 SIGI,26,9,-0.00714,0.3462,0.1941,Selective Insurance Group Inc. Common Stock,Nasdaq
 CHD,30,10,-0.01165,0.3333,0.1923,Church & Dwight,S&P500
 ESQ,19,7,-0.0115,0.3684,0.1915,Esquire Financial Holdings Inc. Common Stock,Nasdaq
-WDFC,34,11,-0.00484,0.3235,0.1913,WD-40 Company Common Stock,Nasdaq
+WDFC,34,11,-0.00483,0.3235,0.1913,WD-40 Company Common Stock,Nasdaq
 AAON,9,4,-0.02555,0.4444,0.1888,AAON Inc. Common Stock,Nasdaq
 CVS,9,4,-0.01751,0.4444,0.1888,CVS Health,S&P500
 FTNT,9,4,0.01098,0.4444,0.1888,Fortinet,Nasdaq+S&P500

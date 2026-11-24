@@ -94,3 +94,23 @@ The full scan beats the baseline by only about 1 percentage point, and its avera
 lower than the baseline's. The price and trend conditions alone lost to buying at random in
 2021 and 2022, and roughly matched it from 2023 to 2026. With a $10 price floor the results are
 nearly the same. Year-by-year results and per-stock scores are saved in `results/near52wh_p*_*.csv`.
+
+---
+
+# Portfolio simulation: trade the stock with the best expectancy each day
+
+`portfolio_sim.py --signals near52|sma14` simulates trading the signals. Each day it buys the
+triggered stock with the highest **expectancy** (that stock's average 5-day return on its past
+signals, or win rate × average win − loss rate × average loss), holds it 5 days, and charges a
+0.10% round-trip cost.
+
+Expectancy is **walk-forward**: on each day it uses only trades that had already exited, so the
+test never uses future results. For comparison, the script also runs the same strategy with
+expectancy from the full backtest (which does see the future), a random pick among that day's
+triggered stocks, and buying and holding SPY.
+
+**Results:** with honest, walk-forward expectancy, picking the best-expectancy stock did no better
+than picking a triggered stock at random, and often did worse. The version that sees the future
+looks spectacular, which shows how much in-sample rankings overstate results. On the 14-day
+average signal, the results depend mostly on a few biotech stocks that jumped 40–300% in 5 days.
+See `results/sim_*` for full tables and trade lists.

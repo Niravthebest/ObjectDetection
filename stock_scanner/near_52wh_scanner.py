@@ -166,6 +166,9 @@ def cmd_backtest(args):
         frames.append(d[keep].assign(symbol=s).reset_index(names="date"))
     allx = pd.concat(frames, ignore_index=True)
     fund_start = allx.loc[allx["has_fund"], "date"].min()
+    sig = allx[allx.technical_fresh | allx.pass_all_fresh]
+    sig[["date", "symbol", "technical_fresh", "pass_all_fresh", "has_fund"] + [f"fwd{h}" for h in HORIZONS]] \
+        .to_csv(os.path.join(args.out_dir, f"near52wh_p{int(args.min_price)}_trades.csv"), index=False)
 
     rows = []
     def add(label, period, sub):
