@@ -1,0 +1,18 @@
+{
+  "position_cap": 5,
+  "hold_days": 10,
+  "total_trades": 311,
+  "unique_symbols": 187,
+  "win_rate": 0.5112540192926045,
+  "avg_return_per_trade": 0.005719621366517751,
+  "median_return_per_trade": 0.002669039145907659,
+  "profit_factor": 1.2320736186253578,
+  "avg_concurrent_positions": 3.245683930942895,
+  "candidates_skipped_for_cap": 16116,
+  "portfolio_total_return": 0.11020186199216386,
+  "portfolio_cagr": 0.05546848412649852,
+  "portfolio_max_drawdown": -0.24653420073534582,
+  "portfolio_sharpe_annualized": 0.3285839143853936,
+  "test_start": "2023-11-25",
+  "test_end": "2026-11-25"
+}
