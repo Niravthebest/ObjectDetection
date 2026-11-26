@@ -1,0 +1,18 @@
+{
+  "total_trades": 337,
+  "unique_symbols": 92,
+  "win_rate": 0.486646884272997,
+  "avg_return_per_trade": 0.059937252072624944,
+  "median_return_per_trade": -0.005069708491761693,
+  "avg_win": 0.279916912716112,
+  "avg_loss": -0.14859837998247266,
+  "profit_factor": 1.7857177259861587,
+  "avg_concurrent_positions": 2.65982636148382,
+  "portfolio_total_return": 22.85032050839096,
+  "portfolio_cagr": 0.8792162138014417,
+  "portfolio_max_drawdown": -0.8549541201956232,
+  "portfolio_sharpe_annualized": 1.0679265805351912,
+  "hold_days": 10,
+  "test_start": "2017-01-01",
+  "test_end": "2025-12-31"
+}
