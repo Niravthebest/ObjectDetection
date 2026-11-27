@@ -103,7 +103,9 @@ def main():
     ap.add_argument("--trades", required=True)
     ap.add_argument("--data-dir", default="data")
     ap.add_argument("--out", default="results/options_overlay_trades.csv")
+    ap.add_argument("--delta", type=float, default=TARGET_DELTA)
     args = ap.parse_args()
+    target_delta = args.delta
 
     trades = pd.read_csv(args.trades)
     trades["signal_date"] = pd.to_datetime(trades["signal_date"])
@@ -138,7 +140,7 @@ def main():
             continue
         t0 = t0_days / 365.25
 
-        k = solve_strike_for_delta(s0, t0, R, sigma, TARGET_DELTA)
+        k = solve_strike_for_delta(s0, t0, R, sigma, target_delta)
         entry_premium = max(bs_call_price(s0, k, t0, R, sigma), MIN_PREMIUM)
         exit_value = max(s_exit - k, 0.0)
         option_return = exit_value / entry_premium - 1.0
