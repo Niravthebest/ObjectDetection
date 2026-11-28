@@ -33,6 +33,11 @@ def fetch(sym, out):
                     if None not in row:
                         w.writerow([time.strftime("%Y-%m-%d", time.gmtime(ts))] + row)
             return sym, "ok"
+        except urllib.error.HTTPError as e:
+            err = e
+            if e.code in (400, 404):  # delisted / unknown ticker: don't retry
+                break
+            time.sleep(2 ** attempt)
         except Exception as e:
             err = e
             time.sleep(2 ** attempt)
