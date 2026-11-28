@@ -5,8 +5,8 @@ Alert-only. Nothing is ever bought or sold automatically.
 ## Strategy
 - Universe: S&P 500.
 - Signal (all on the day's close): RSI(14) < 35; close within 20% of 52-week low;
-  volume >= 1.5x 20-day average; 5-day return < +10%; close more than 70% below 52-week high. No stop-loss.
-- Robinhood saved scan: "Crushed S&P 500 reversal (>70% down)",
+  volume >= 1.5x 20-day average; 5-day return < +10%; close more than 60% below 52-week high. No stop-loss.
+- Robinhood saved scan: "Crushed S&P 500 reversal (>60% down)",
   scan_id `9435407b-05d5-41c7-a52a-b8a849791a6a`.
 - Trade: buy at the next trading day's open; hold 30 trading days; sell at the open of
   the 31st trading day. One position per symbol; repeat signals while held are ignored.
@@ -35,6 +35,6 @@ Alert-only. Nothing is ever bought or sold automatically.
 6. Set `last_run`, commit and push `positions.json`.
 7. If there were events, end with a short summary of them; otherwise end with "No change".
 
-Reminder for every alert: backtest 2017-2025 had ~61% wins, median +5% per trade, worst -36%;
+Reminder for every alert: backtest 2017-2025 had ~63% wins, median +7% per trade, worst -49%;
 most profit came from rare large winners and crash clusters (March 2020). Judge it over many
 trades, not a handful.
