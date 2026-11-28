@@ -1,4 +1,65 @@
 {
-  "positions": [],
-  "last_run": null
+  "positions": [
+    {
+      "symbol": "COIN",
+      "signal_date": "2026-10-30",
+      "status": "open",
+      "entry_date": "2026-11-02",
+      "entry_price": 140.36,
+      "expected_exit_date": "2026-12-15",
+      "exit_date": null,
+      "exit_price": null,
+      "return": null,
+      "note": "seeded from backtest; entry = that day's open"
+    },
+    {
+      "symbol": "RDDT",
+      "signal_date": "2026-10-30",
+      "status": "open",
+      "entry_date": "2026-11-02",
+      "entry_price": 92.21,
+      "expected_exit_date": "2026-12-15",
+      "exit_date": null,
+      "exit_price": null,
+      "return": null,
+      "note": "seeded from backtest; entry = that day's open"
+    },
+    {
+      "symbol": "INTU",
+      "signal_date": "2026-11-20",
+      "status": "open",
+      "entry_date": "2026-11-23",
+      "entry_price": 274.02,
+      "expected_exit_date": "2027-01-07",
+      "exit_date": null,
+      "exit_price": null,
+      "return": null,
+      "note": "seeded from backtest; entry = that day's open"
+    },
+    {
+      "symbol": "APTV",
+      "signal_date": "2026-11-20",
+      "status": "open",
+      "entry_date": "2026-11-23",
+      "entry_price": 36.82,
+      "expected_exit_date": "2027-01-07",
+      "exit_date": null,
+      "exit_price": null,
+      "return": null,
+      "note": "seeded from backtest; entry = that day's open"
+    },
+    {
+      "symbol": "ALB",
+      "signal_date": "2026-11-20",
+      "status": "open",
+      "entry_date": "2026-11-23",
+      "entry_price": 84.1,
+      "expected_exit_date": "2027-01-07",
+      "exit_date": null,
+      "exit_price": null,
+      "return": null,
+      "note": "seeded from backtest; entry = that day's open"
+    }
+  ],
+  "last_run": "2026-11-27"
 }
