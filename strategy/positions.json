@@ -10,7 +10,8 @@
       "exit_date": null,
       "exit_price": null,
       "return": null,
-      "note": "seeded from backtest; entry = that day's open"
+      "note": "seeded from backtest; entry = that day's open",
+      "instrument": "stock"
     },
     {
       "symbol": "RDDT",
@@ -22,7 +23,8 @@
       "exit_date": null,
       "exit_price": null,
       "return": null,
-      "note": "seeded from backtest; entry = that day's open"
+      "note": "seeded from backtest; entry = that day's open",
+      "instrument": "stock"
     },
     {
       "symbol": "INTU",
@@ -34,7 +36,8 @@
       "exit_date": null,
       "exit_price": null,
       "return": null,
-      "note": "seeded from backtest; entry = that day's open"
+      "note": "seeded from backtest; entry = that day's open",
+      "instrument": "stock"
     },
     {
       "symbol": "APTV",
@@ -46,7 +49,8 @@
       "exit_date": null,
       "exit_price": null,
       "return": null,
-      "note": "seeded from backtest; entry = that day's open"
+      "note": "seeded from backtest; entry = that day's open",
+      "instrument": "stock"
     },
     {
       "symbol": "ALB",
@@ -58,7 +62,8 @@
       "exit_date": null,
       "exit_price": null,
       "return": null,
-      "note": "seeded from backtest; entry = that day's open"
+      "note": "seeded from backtest; entry = that day's open",
+      "instrument": "stock"
     }
   ],
   "last_run": "2026-11-27"
