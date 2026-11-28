@@ -1,0 +1,16 @@
+{
+  "last_scan_date": "2026-11-27",
+  "open_positions": {
+    "AVZO": {
+      "signal_date": "2026-11-23",
+      "entry_date": "2026-11-24",
+      "entry_price": 4.25
+    },
+    "GPCR": {
+      "signal_date": "2026-11-24",
+      "entry_date": "2026-11-25",
+      "entry_price": 17.48
+    }
+  },
+  "pending_entries": {}
+}

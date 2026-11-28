@@ -1,0 +1,12 @@
+{
+  "total_trades": 825,
+  "unique_symbols": 92,
+  "win_rate": 0.5551515151515152,
+  "avg_return_pct": 0.2158417721577526,
+  "median_return_pct": 0.04081632653061229,
+  "trades_ge_100pct": 51,
+  "total_pnl_10k_per_trade": 1780694.620301459,
+  "pct_trades_overlapping_same_symbol_open_position": 0.716,
+  "top5_symbols_pnl": 746985.1369428717,
+  "top5_symbols_pnl_share": 0.41949087082456193
+}
