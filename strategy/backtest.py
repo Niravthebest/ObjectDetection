@@ -6,7 +6,7 @@ Entry (all on signal-day close):
   3. volume / avg volume of prior 20 days >= 1.5
   4. 5-day return < +10%
   5. close <= (1 - DD) * 52-week high   (DD = 0.80 by default)
-Trade: buy next day's open, hold 30 trading days, sell at that day's open.
+Trade: buy next day's open, hold N trading days (default 30, --hold), sell at that day's open.
 One open position per symbol; repeat signals while holding are ignored.
 
 Input: a directory of CSVs, one per symbol, columns date,open,high,low,close,volume
@@ -39,13 +39,13 @@ def signals(df, dd):
     )
 
 
-def trades_for(sym, df, dd, start, end):
+def trades_for(sym, df, dd, start, end, hold=HOLD):
     sig = signals(df, dd).to_numpy()
     dates, opens = df.index, df.open.to_numpy()
     out, i, n = [], 0, len(df)
     while i < n - 1:
         if sig[i] and start <= dates[i] <= end:
-            e, x = i + 1, i + 1 + HOLD
+            e, x = i + 1, i + 1 + hold
             closed = x < n
             xp = opens[x] if closed else df.close.iloc[-1]
             out.append(dict(symbol=sym, signal=dates[i], entry=dates[e], entry_px=opens[e],
@@ -79,12 +79,13 @@ if __name__ == "__main__":
     ap.add_argument("--dd", type=float, nargs="+", default=[0.8])
     ap.add_argument("--start", default="2017-01-01")
     ap.add_argument("--end", default="2025-12-31")
+    ap.add_argument("--hold", type=int, default=HOLD)
     ap.add_argument("--out", default="trades.csv")
     a = ap.parse_args()
     data = {os.path.basename(p)[:-4]: load(p) for p in glob.glob(os.path.join(a.data_dir, "*.csv"))}
     s, e = pd.Timestamp(a.start), pd.Timestamp(a.end)
     for dd in a.dd:
-        t = pd.DataFrame([x for sym, df in data.items() for x in trades_for(sym, df, dd, s, e)])
+        t = pd.DataFrame([x for sym, df in data.items() for x in trades_for(sym, df, dd, s, e, a.hold)])
         print(f"drawdown > {dd:.0%}: " + (summarize(t) if len(t) else "0 trades"))
         if len(t):
             t.to_csv(a.out.replace(".csv", f"_dd{int(dd*100)}.csv"), index=False)
